@@ -1,9 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+const { useState, useEffect, useRef } = React;
 
 const GAME_WIDTH = 800;
 const GAME_HEIGHT = 600;
 const CREATURE_SIZE = 40;
+const PLAYER_SIZE = 50;
 const MOVE_SPEED = 1;
+const PLAYER_SPEED = 3;
+const INTERACTION_DISTANCE = 60;
 
 // Game rules: Pineapple beats Knife, Knife beats Bum, Bum beats Pineapple
 const MOVES = {
@@ -30,6 +33,12 @@ const getWinner = (playerMove, creatureMove) => {
   return 'creature';
 };
 
+const getDistance = (obj1, obj2) => {
+  const dx = obj1.x - obj2.x;
+  const dy = obj1.y - obj2.y;
+  return Math.sqrt(dx * dx + dy * dy);
+};
+
 const generateCreature = (id) => ({
   id,
   emoji: ['🐱', '🐶', '🐸', '🦊', '🐰', '🐼', '🦔'][Math.floor(Math.random() * 7)],
@@ -41,7 +50,7 @@ const generateCreature = (id) => ({
   inParty: false
 });
 
-export default function PineappleKnifeBumGame() {
+function PineappleKnifeBumGame() {
   const [creatures, setCreatures] = useState([]);
   const [party, setParty] = useState([]);
   const [selectedCreature, setSelectedCreature] = useState(null);
@@ -51,6 +60,13 @@ export default function PineappleKnifeBumGame() {
   const [countdown, setCountdown] = useState(3);
   const [battleResult, setBattleResult] = useState(null);
   const [creatureWins, setCreatureWins] = useState({});
+  const [player, setPlayer] = useState({
+    x: GAME_WIDTH / 2 - PLAYER_SIZE / 2,
+    y: GAME_HEIGHT / 2 - PLAYER_SIZE / 2,
+    emoji: '🧑‍🌾'
+  });
+  const [keys, setKeys] = useState({});
+  const [nearbyCreature, setNearbyCreature] = useState(null);
   const animationRef = useRef();
 
   // Initialize creatures
@@ -59,30 +75,105 @@ export default function PineappleKnifeBumGame() {
     setCreatures(initialCreatures);
   }, []);
 
-  // Animation loop for creature movement
+  // Keyboard event listeners
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      setKeys(prev => ({ ...prev, [e.key.toLowerCase()]: true }));
+      
+      // Handle interaction with space or enter
+      if ((e.key === ' ' || e.key === 'Enter') && nearbyCreature && gameState === 'exploring') {
+        e.preventDefault();
+        setSelectedCreature(nearbyCreature);
+        setGameState('battling');
+        setPlayerMove(null);
+        setBattleResult(null);
+      }
+    };
+
+    const handleKeyUp = (e) => {
+      setKeys(prev => ({ ...prev, [e.key.toLowerCase()]: false }));
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [nearbyCreature, gameState]);
+
+  // Animation loop for player and creature movement
   useEffect(() => {
     const animate = () => {
       if (gameState === 'exploring') {
-        setCreatures(prev => prev.map(creature => {
-          if (creature.inParty) return creature;
-          
-          let newX = creature.x + creature.dx;
-          let newY = creature.y + creature.dy;
-          let newDx = creature.dx;
-          let newDy = creature.dy;
+        // Update player position
+        setPlayer(prev => {
+          let newX = prev.x;
+          let newY = prev.y;
 
-          // Bounce off walls
-          if (newX <= 0 || newX >= GAME_WIDTH - CREATURE_SIZE) {
-            newDx = -newDx;
-            newX = Math.max(0, Math.min(GAME_WIDTH - CREATURE_SIZE, newX));
-          }
-          if (newY <= 0 || newY >= GAME_HEIGHT - CREATURE_SIZE) {
-            newDy = -newDy;
-            newY = Math.max(0, Math.min(GAME_HEIGHT - CREATURE_SIZE, newY));
-          }
+          if (keys['w'] || keys['arrowup']) newY -= PLAYER_SPEED;
+          if (keys['s'] || keys['arrowdown']) newY += PLAYER_SPEED;
+          if (keys['a'] || keys['arrowleft']) newX -= PLAYER_SPEED;
+          if (keys['d'] || keys['arrowright']) newX += PLAYER_SPEED;
 
-          return { ...creature, x: newX, y: newY, dx: newDx, dy: newDy };
-        }));
+          // Keep player within bounds
+          newX = Math.max(0, Math.min(GAME_WIDTH - PLAYER_SIZE, newX));
+          newY = Math.max(0, Math.min(GAME_HEIGHT - PLAYER_SIZE, newY));
+
+          return { ...prev, x: newX, y: newY };
+        });
+
+        // Update creatures
+        setCreatures(prev => {
+          const updatedCreatures = prev.map(creature => {
+            if (creature.inParty) {
+              // Make party creatures follow the player
+              const targetX = player.x - 80 - (creature.id * 30);
+              const targetY = player.y;
+              const dx = targetX - creature.x;
+              const dy = targetY - creature.y;
+              const distance = Math.sqrt(dx * dx + dy * dy);
+              
+              if (distance > 5) {
+                const moveX = (dx / distance) * PLAYER_SPEED * 0.8;
+                const moveY = (dy / distance) * PLAYER_SPEED * 0.8;
+                return { 
+                  ...creature, 
+                  x: creature.x + moveX, 
+                  y: creature.y + moveY 
+                };
+              }
+              return creature;
+            } else {
+              // Normal creature movement
+              let newX = creature.x + creature.dx;
+              let newY = creature.y + creature.dy;
+              let newDx = creature.dx;
+              let newDy = creature.dy;
+
+              // Bounce off walls
+              if (newX <= 0 || newX >= GAME_WIDTH - CREATURE_SIZE) {
+                newDx = -newDx;
+                newX = Math.max(0, Math.min(GAME_WIDTH - CREATURE_SIZE, newX));
+              }
+              if (newY <= 0 || newY >= GAME_HEIGHT - CREATURE_SIZE) {
+                newDy = -newDy;
+                newY = Math.max(0, Math.min(GAME_HEIGHT - CREATURE_SIZE, newY));
+              }
+
+              return { ...creature, x: newX, y: newY, dx: newDx, dy: newDy };
+            }
+          });
+
+          // Check for nearby creatures for interaction
+          const nearby = updatedCreatures.find(creature => 
+            !creature.inParty && getDistance(player, creature) < INTERACTION_DISTANCE
+          );
+          setNearbyCreature(nearby || null);
+
+          return updatedCreatures;
+        });
       }
       animationRef.current = requestAnimationFrame(animate);
     };
@@ -93,16 +184,8 @@ export default function PineappleKnifeBumGame() {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [gameState]);
+  }, [gameState, keys, player]);
 
-  const handleCreatureClick = (creature) => {
-    if (gameState === 'exploring' && !creature.inParty) {
-      setSelectedCreature(creature);
-      setGameState('battling');
-      setPlayerMove(null);
-      setBattleResult(null);
-    }
-  };
 
   const handlePlayerMove = (move) => {
     setPlayerMove(move);
@@ -165,6 +248,12 @@ export default function PineappleKnifeBumGame() {
     setCreatureWins({});
     setGameState('exploring');
     setSelectedCreature(null);
+    setPlayer({
+      x: GAME_WIDTH / 2 - PLAYER_SIZE / 2,
+      y: GAME_HEIGHT / 2 - PLAYER_SIZE / 2,
+      emoji: '🧑‍🌾'
+    });
+    setNearbyCreature(null);
   };
 
   return (
@@ -182,19 +271,50 @@ export default function PineappleKnifeBumGame() {
         className="relative bg-green-200 border-4 border-green-600 mx-auto"
         style={{ width: GAME_WIDTH, height: GAME_HEIGHT }}
       >
+        {/* Player Character */}
+        <div
+          className="absolute text-4xl z-10"
+          style={{
+            left: player.x,
+            top: player.y,
+            width: PLAYER_SIZE,
+            height: PLAYER_SIZE,
+          }}
+        >
+          {player.emoji}
+        </div>
+
+        {/* Interaction Indicator */}
+        {nearbyCreature && (
+          <div
+            className="absolute z-20 pointer-events-none"
+            style={{
+              left: nearbyCreature.x + CREATURE_SIZE / 2 - 15,
+              top: nearbyCreature.y - 30,
+              width: 30,
+              height: 20,
+            }}
+          >
+            <div className="bg-white border-2 border-blue-500 rounded px-1 text-xs text-center animate-bounce">
+              SPACE
+            </div>
+          </div>
+        )}
+
         {creatures.map(creature => (
           <div
             key={creature.id}
-            className={`absolute cursor-pointer text-3xl hover:scale-110 transition-transform ${
-              creature.inParty ? 'opacity-50' : ''
-            } ${selectedCreature?.id === creature.id ? 'animate-pulse' : ''}`}
+            className={`absolute text-3xl transition-transform ${
+              creature.inParty ? 'opacity-70' : ''
+            } ${selectedCreature?.id === creature.id ? 'animate-pulse' : ''} ${
+              nearbyCreature?.id === creature.id ? 'scale-110 animate-pulse' : ''
+            }`}
             style={{
               left: creature.x,
               top: creature.y,
               width: CREATURE_SIZE,
               height: CREATURE_SIZE,
             }}
-            onClick={() => handleCreatureClick(creature)}
           >
             {creature.emoji}
             {creatureWins[creature.id] > 0 && (
@@ -312,8 +432,10 @@ export default function PineappleKnifeBumGame() {
       <div className="mt-4 bg-white p-4 rounded-lg border border-green-600">
         <h3 className="font-bold text-green-800 mb-2">How to Play:</h3>
         <ul className="text-sm text-green-700 space-y-1">
-          <li>• Click on wandering creatures to challenge them</li>
-          <li>• Win 3 battles against a creature to add it to your party</li>
+          <li>• Move your farmer (🧑‍🌾) with WASD or arrow keys</li>
+          <li>• Get close to creatures and press SPACE to challenge them</li>
+          <li>• Win 3 battles against a creature to recruit it to your party</li>
+          <li>• Recruited creatures will follow you around</li>
           <li>• 🍍 Pineapple beats 🔪 Knife (cuts it up)</li>
           <li>• 🔪 Knife beats 🍑 Bum (ouch!)</li>
           <li>• 🍑 Bum beats 🍍 Pineapple (sits on it)</li>

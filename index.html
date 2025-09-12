@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pineapple Knife Bum Adventure</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const VIEWPORT_WIDTH = 800;
+        const VIEWPORT_HEIGHT = 600;
+        const WORLD_WIDTH = 2400; // 3x wider
+        const WORLD_HEIGHT = 1800; // 3x taller
+        const CREATURE_SIZE = 40;
+        const PLAYER_SIZE = 50;
+        const MOVE_SPEED = 1;
+        const PLAYER_SPEED = 3;
+        const INTERACTION_DISTANCE = 60;
+
+        // Game rules: Pineapple beats Knife, Knife beats Bum, Bum beats Pineapple
+        const MOVES = {
+          PINEAPPLE: '🍍',
+          KNIFE: '🔪', 
+          BUM: '🍑'
+        };
+
+        const MOVE_NAMES = {
+          PINEAPPLE: 'Pineapple',
+          KNIFE: 'Knife',
+          BUM: 'Bum'
+        };
+
+        const getWinner = (playerMove, creatureMove) => {
+          if (playerMove === creatureMove) return 'tie';
+          if (
+            (playerMove === 'PINEAPPLE' && creatureMove === 'KNIFE') ||
+            (playerMove === 'KNIFE' && creatureMove === 'BUM') ||
+            (playerMove === 'BUM' && creatureMove === 'PINEAPPLE')
+          ) {
+            return 'player';
+          }
+          return 'creature';
+        };
+
+        const getDistance = (obj1, obj2) => {
+          const dx = obj1.x - obj2.x;
+          const dy = obj1.y - obj2.y;
+          return Math.sqrt(dx * dx + dy * dy);
+        };
+
+        const generateCreature = (id) => {
+          const baseEmojis = ['🐱', '🐶', '🐸', '🦊', '🐰', '🐼', '🦔'];
+          const isShiny = Math.random() < 0.1; // 10% chance for shiny
+          const isRare = Math.random() < 0.05; // 5% chance for rare
+          
+          let emoji = baseEmojis[Math.floor(Math.random() * baseEmojis.length)];
+          let rarity = 'common';
+          
+          if (isRare) {
+            // Super rare creatures
+            emoji = ['🦄', '🐲', '🦋', '🐙'][Math.floor(Math.random() * 4)];
+            rarity = 'rare';
+          } else if (isShiny) {
+            rarity = 'shiny';
+          }
+          
+          return {
+            id,
+            emoji,
+            rarity,
+            x: Math.random() * (WORLD_WIDTH - CREATURE_SIZE),
+            y: Math.random() * (WORLD_HEIGHT - CREATURE_SIZE),
+            dx: (Math.random() - 0.5) * MOVE_SPEED * 2,
+            dy: (Math.random() - 0.5) * MOVE_SPEED * 2,
+            wins: 0,
+            inParty: false,
+            // Animation state
+            bounceOffset: 0,
+            bouncePhase: Math.random() * Math.PI * 2,
+            isPaused: false,
+            pauseTimer: 0,
+            walkCycle: 0,
+            sparklePhase: Math.random() * Math.PI * 2
+          };
+        };
+
+        // Sound effects using Web Audio API
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        
+        const playSound = (type) => {
+          if (audioContext.state === 'suspended') {
+            audioContext.resume();
+          }
+          
+          const oscillator = audioContext.createOscillator();
+          const gainNode = audioContext.createGain();
+          
+          oscillator.connect(gainNode);
+          gainNode.connect(audioContext.destination);
+          
+          switch(type) {
+            case 'battle':
+              oscillator.frequency.setValueAtTime(440, audioContext.currentTime);
+              oscillator.frequency.exponentialRampToValueAtTime(880, audioContext.currentTime + 0.1);
+              gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+              gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+              oscillator.start();
+              oscillator.stop(audioContext.currentTime + 0.2);
+              break;
+              
+            case 'win':
+              [523, 659, 784].forEach((freq, i) => {
+                const osc = audioContext.createOscillator();
+                const gain = audioContext.createGain();
+                osc.connect(gain);
+                gain.connect(audioContext.destination);
+                osc.frequency.setValueAtTime(freq, audioContext.currentTime + i * 0.1);
+                gain.gain.setValueAtTime(0.1, audioContext.currentTime + i * 0.1);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + i * 0.1 + 0.3);
+                osc.start(audioContext.currentTime + i * 0.1);
+                osc.stop(audioContext.currentTime + i * 0.1 + 0.3);
+              });
+              break;
+              
+            case 'recruit':
+              [392, 523, 659, 784, 1047].forEach((freq, i) => {
+                const osc = audioContext.createOscillator();
+                const gain = audioContext.createGain();
+                osc.connect(gain);
+                gain.connect(audioContext.destination);
+                osc.frequency.setValueAtTime(freq, audioContext.currentTime + i * 0.08);
+                gain.gain.setValueAtTime(0.08, audioContext.currentTime + i * 0.08);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + i * 0.08 + 0.4);
+                osc.start(audioContext.currentTime + i * 0.08);
+                osc.stop(audioContext.currentTime + i * 0.08 + 0.4);
+              });
+              break;
+              
+            case 'step':
+              oscillator.frequency.setValueAtTime(200 + Math.random() * 100, audioContext.currentTime);
+              oscillator.type = 'square';
+              gainNode.gain.setValueAtTime(0.02, audioContext.currentTime);
+              gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.1);
+              oscillator.start();
+              oscillator.stop(audioContext.currentTime + 0.1);
+              break;
+              
+            case 'lose':
+              oscillator.frequency.setValueAtTime(200, audioContext.currentTime);
+              oscillator.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 0.4);
+              gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+              gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.4);
+              oscillator.start();
+              oscillator.stop(audioContext.currentTime + 0.4);
+              break;
+          }
+        };
+
+        const generateTownElements = () => {
+          const elements = [];
+          // Houses
+          const houseEmojis = ['🏠', '🏡', '🏘️', '🏢', '🏪', '🏬'];
+          for (let i = 0; i < 15; i++) {
+            elements.push({
+              id: `house-${i}`,
+              emoji: houseEmojis[Math.floor(Math.random() * houseEmojis.length)],
+              x: Math.random() * (WORLD_WIDTH - 80),
+              y: Math.random() * (WORLD_HEIGHT - 80),
+              width: 80,
+              height: 80,
+              type: 'building'
+            });
+          }
+          // Trees and decorations
+          const decorEmojis = ['🌳', '🌲', '🌸', '💐', '⛲', '🪨'];
+          for (let i = 0; i < 25; i++) {
+            elements.push({
+              id: `decor-${i}`,
+              emoji: decorEmojis[Math.floor(Math.random() * decorEmojis.length)],
+              x: Math.random() * (WORLD_WIDTH - 40),
+              y: Math.random() * (WORLD_HEIGHT - 40),
+              width: 40,
+              height: 40,
+              type: 'decoration'
+            });
+          }
+          return elements;
+        };
+
+        function PineappleKnifeBumGame() {
+          const [creatures, setCreatures] = useState([]);
+          const [party, setParty] = useState([]);
+          const [selectedCreature, setSelectedCreature] = useState(null);
+          const [gameState, setGameState] = useState('exploring');
+          const [playerMove, setPlayerMove] = useState(null);
+          const [creatureMove, setCreatureMove] = useState(null);
+          const [countdown, setCountdown] = useState(3);
+          const [battleResult, setBattleResult] = useState(null);
+          const [creatureWins, setCreatureWins] = useState({});
+          const [player, setPlayer] = useState({
+            x: WORLD_WIDTH / 2 - PLAYER_SIZE / 2,
+            y: WORLD_HEIGHT / 2 - PLAYER_SIZE / 2,
+            emoji: '🧑‍🌾',
+            isMoving: false,
+            walkCycle: 0,
+            bounceOffset: 0,
+            stepCount: 0
+          });
+          const [camera, setCamera] = useState({
+            x: WORLD_WIDTH / 2 - VIEWPORT_WIDTH / 2,
+            y: WORLD_HEIGHT / 2 - VIEWPORT_HEIGHT / 2
+          });
+          const [townElements, setTownElements] = useState([]);
+          const [keys, setKeys] = useState({});
+          const [nearbyCreature, setNearbyCreature] = useState(null);
+          const [currentBattleWins, setCurrentBattleWins] = useState(0);
+          const [particles, setParticles] = useState([]);
+          const animationRef = useRef();
+
+          // Particle system
+          const createParticles = (x, y, type, count = 10) => {
+            const newParticles = [];
+            for (let i = 0; i < count; i++) {
+              newParticles.push({
+                id: Date.now() + i,
+                x: x + (Math.random() - 0.5) * 20,
+                y: y + (Math.random() - 0.5) * 20,
+                vx: (Math.random() - 0.5) * 4,
+                vy: (Math.random() - 0.5) * 4 - 2,
+                life: 60,
+                maxLife: 60,
+                type: type,
+                emoji: type === 'celebration' ? ['✨', '🎉', '⭐', '💫'][Math.floor(Math.random() * 4)] : '💨'
+              });
+            }
+            setParticles(prev => [...prev, ...newParticles]);
+          };
+
+          // Initialize creatures and town
+          useEffect(() => {
+            const initialCreatures = Array.from({ length: 15 }, (_, i) => generateCreature(i));
+            setCreatures(initialCreatures);
+            setTownElements(generateTownElements());
+          }, []);
+
+          // Keyboard event listeners
+          useEffect(() => {
+            const handleKeyDown = (e) => {
+              setKeys(prev => ({ ...prev, [e.key.toLowerCase()]: true }));
+              
+              // Handle interaction with space or enter
+              if ((e.key === ' ' || e.key === 'Enter') && nearbyCreature && gameState === 'exploring') {
+                e.preventDefault();
+                playSound('battle');
+                setSelectedCreature(nearbyCreature);
+                setCurrentBattleWins(creatureWins[nearbyCreature.id] || 0);
+                setGameState('battling');
+                setPlayerMove(null);
+                setBattleResult(null);
+              }
+            };
+
+            const handleKeyUp = (e) => {
+              setKeys(prev => ({ ...prev, [e.key.toLowerCase()]: false }));
+            };
+
+            window.addEventListener('keydown', handleKeyDown);
+            window.addEventListener('keyup', handleKeyUp);
+
+            return () => {
+              window.removeEventListener('keydown', handleKeyDown);
+              window.removeEventListener('keyup', handleKeyUp);
+            };
+          }, [nearbyCreature, gameState]);
+
+          // Animation loop for player and creature movement
+          useEffect(() => {
+            const animate = () => {
+              if (gameState === 'exploring') {
+                // Update player position
+                setPlayer(prev => {
+                  let newX = prev.x;
+                  let newY = prev.y;
+                  let isMoving = false;
+
+                  if (keys['w'] || keys['arrowup']) {
+                    newY -= PLAYER_SPEED;
+                    isMoving = true;
+                  }
+                  if (keys['s'] || keys['arrowdown']) {
+                    newY += PLAYER_SPEED;
+                    isMoving = true;
+                  }
+                  if (keys['a'] || keys['arrowleft']) {
+                    newX -= PLAYER_SPEED;
+                    isMoving = true;
+                  }
+                  if (keys['d'] || keys['arrowright']) {
+                    newX += PLAYER_SPEED;
+                    isMoving = true;
+                  }
+
+                  // Keep player within world bounds
+                  newX = Math.max(0, Math.min(WORLD_WIDTH - PLAYER_SIZE, newX));
+                  newY = Math.max(0, Math.min(WORLD_HEIGHT - PLAYER_SIZE, newY));
+
+                  // Update walking animation (smoother for player)
+                  let newWalkCycle = prev.walkCycle;
+                  let newBounceOffset = 0;
+                  let newStepCount = prev.stepCount;
+                  
+                  if (isMoving) {
+                    newWalkCycle += 0.2;
+                    newBounceOffset = Math.sin(newWalkCycle) * 1.5;
+                    newStepCount++;
+                    
+                    // Play step sound every 20 frames (~3 times per second)
+                    if (newStepCount % 20 === 0) {
+                      playSound('step');
+                    }
+                  }
+
+                  return { 
+                    ...prev, 
+                    x: newX, 
+                    y: newY, 
+                    isMoving, 
+                    walkCycle: newWalkCycle,
+                    bounceOffset: newBounceOffset,
+                    stepCount: newStepCount
+                  };
+                });
+
+                // Update camera to follow player
+                setCamera(prev => {
+                  const targetX = player.x - VIEWPORT_WIDTH / 2 + PLAYER_SIZE / 2;
+                  const targetY = player.y - VIEWPORT_HEIGHT / 2 + PLAYER_SIZE / 2;
+                  
+                  // Keep camera within world bounds
+                  const clampedX = Math.max(0, Math.min(WORLD_WIDTH - VIEWPORT_WIDTH, targetX));
+                  const clampedY = Math.max(0, Math.min(WORLD_HEIGHT - VIEWPORT_HEIGHT, targetY));
+                  
+                  // Smooth camera movement
+                  const smoothFactor = 0.1;
+                  const newX = prev.x + (clampedX - prev.x) * smoothFactor;
+                  const newY = prev.y + (clampedY - prev.y) * smoothFactor;
+                  
+                  return { x: newX, y: newY };
+                });
+
+                // Update creatures
+                setCreatures(prev => {
+                  const updatedCreatures = prev.map(creature => {
+                    if (creature.inParty) {
+                      // Make party creatures follow the player
+                      const targetX = player.x - 80 - (creature.id * 30);
+                      const targetY = player.y;
+                      const dx = targetX - creature.x;
+                      const dy = targetY - creature.y;
+                      const distance = Math.sqrt(dx * dx + dy * dy);
+                      
+                      if (distance > 5) {
+                        const moveX = (dx / distance) * PLAYER_SPEED * 0.8;
+                        const moveY = (dy / distance) * PLAYER_SPEED * 0.8;
+                        return { 
+                          ...creature, 
+                          x: creature.x + moveX, 
+                          y: creature.y + moveY 
+                        };
+                      }
+                      return creature;
+                    } else {
+                      // Normal creature movement with walking animation
+                      let newX = creature.x;
+                      let newY = creature.y;
+                      let newDx = creature.dx;
+                      let newDy = creature.dy;
+                      let newIsPaused = creature.isPaused;
+                      let newPauseTimer = creature.pauseTimer;
+                      let newBouncePhase = creature.bouncePhase;
+                      let newBounceOffset = creature.bounceOffset;
+                      let newWalkCycle = creature.walkCycle;
+
+                      // Handle pausing behavior
+                      if (creature.isPaused) {
+                        newPauseTimer--;
+                        if (newPauseTimer <= 0) {
+                          newIsPaused = false;
+                          // Sometimes change direction after pause
+                          if (Math.random() < 0.3) {
+                            newDx = (Math.random() - 0.5) * MOVE_SPEED * 2;
+                            newDy = (Math.random() - 0.5) * MOVE_SPEED * 2;
+                          }
+                        }
+                        newBounceOffset = 0; // No bounce when paused
+                      } else {
+                        // Random chance to pause
+                        if (Math.random() < 0.003) { // 0.3% chance per frame
+                          newIsPaused = true;
+                          newPauseTimer = 60 + Math.random() * 120; // 1-3 seconds at 60fps
+                        } else {
+                          // Normal movement
+                          newX = creature.x + newDx;
+                          newY = creature.y + newDy;
+
+                          // Bounce off walls
+                          if (newX <= 0 || newX >= WORLD_WIDTH - CREATURE_SIZE) {
+                            newDx = -newDx;
+                            newX = Math.max(0, Math.min(WORLD_WIDTH - CREATURE_SIZE, newX));
+                          }
+                          if (newY <= 0 || newY >= WORLD_HEIGHT - CREATURE_SIZE) {
+                            newDy = -newDy;
+                            newY = Math.max(0, Math.min(WORLD_HEIGHT - CREATURE_SIZE, newY));
+                          }
+
+                          // Update walking animation (slower, smoother)
+                          newWalkCycle += 0.15;
+                          newBouncePhase += 0.25;
+                          
+                          // Create bouncy motion (sine wave for vertical offset)
+                          const speed = Math.sqrt(newDx * newDx + newDy * newDy);
+                          if (speed > 0.1) {
+                            newBounceOffset = Math.sin(newBouncePhase) * 2; // Reduced bounce height
+                          } else {
+                            newBounceOffset = 0;
+                          }
+                        }
+                      }
+
+                      // Update sparkle animation for shiny/rare creatures
+                      let newSparklePhase = creature.sparklePhase || 0;
+                      if (creature.rarity === 'shiny' || creature.rarity === 'rare') {
+                        newSparklePhase += 0.1;
+                      }
+
+                      return { 
+                        ...creature, 
+                        x: newX, 
+                        y: newY, 
+                        dx: newDx, 
+                        dy: newDy,
+                        bounceOffset: newBounceOffset,
+                        bouncePhase: newBouncePhase,
+                        isPaused: newIsPaused,
+                        pauseTimer: newPauseTimer,
+                        walkCycle: newWalkCycle,
+                        sparklePhase: newSparklePhase
+                      };
+                    }
+                  });
+
+                  // Check for nearby creatures for interaction
+                  const nearby = updatedCreatures.find(creature => 
+                    !creature.inParty && getDistance(player, creature) < INTERACTION_DISTANCE
+                  );
+                  setNearbyCreature(nearby || null);
+
+                  return updatedCreatures;
+                });
+
+                // Update particles
+                setParticles(prev => {
+                  return prev.map(particle => {
+                    const newParticle = {
+                      ...particle,
+                      x: particle.x + particle.vx,
+                      y: particle.y + particle.vy,
+                      vy: particle.vy + 0.1, // gravity
+                      life: particle.life - 1
+                    };
+                    return newParticle;
+                  }).filter(particle => particle.life > 0);
+                });
+              }
+              animationRef.current = requestAnimationFrame(animate);
+            };
+
+            animationRef.current = requestAnimationFrame(animate);
+            return () => {
+              if (animationRef.current) {
+                cancelAnimationFrame(animationRef.current);
+              }
+            };
+          }, [gameState, keys, player]);
+
+          const handlePlayerMove = (move) => {
+            setPlayerMove(move);
+            const moves = Object.keys(MOVES);
+            const randomMove = moves[Math.floor(Math.random() * moves.length)];
+            setCreatureMove(randomMove);
+            
+            setGameState('countdown');
+            setCountdown(3);
+          };
+
+          // Countdown effect
+          useEffect(() => {
+            if (gameState === 'countdown' && countdown > 0) {
+              const timer = setTimeout(() => {
+                setCountdown(countdown - 1);
+              }, 1000);
+              return () => clearTimeout(timer);
+            } else if (gameState === 'countdown' && countdown === 0) {
+              setGameState('revealing');
+              
+              // Show result after a brief delay
+              setTimeout(() => {
+                const result = getWinner(playerMove, creatureMove);
+                setBattleResult(result);
+                
+                if (result === 'player') {
+                  playSound('win');
+                  const currentWins = creatureWins[selectedCreature.id] || 0;
+                  const newWins = currentWins + 1;
+                  setCurrentBattleWins(newWins);
+                  setCreatureWins(prev => ({ ...prev, [selectedCreature.id]: newWins }));
+                  
+                  if (newWins >= 3) {
+                    // Creature joins party
+                    setTimeout(() => playSound('recruit'), 800);
+                    setTimeout(() => createParticles(selectedCreature.x + CREATURE_SIZE/2, selectedCreature.y + CREATURE_SIZE/2, 'celebration', 15), 800);
+                    setCreatures(prev => prev.map(c => 
+                      c.id === selectedCreature.id ? { ...c, inParty: true } : c
+                    ));
+                    setParty(prev => [...prev, selectedCreature]);
+                    setTimeout(() => {
+                      setGameState('exploring');
+                      setSelectedCreature(null);
+                      setBattleResult(null);
+                      setPlayerMove(null);
+                      setCreatureMove(null);
+                      setCurrentBattleWins(0);
+                    }, 3000);
+                  } else {
+                    setTimeout(() => {
+                      setGameState('exploring');
+                      setSelectedCreature(null);
+                      setBattleResult(null);
+                      setPlayerMove(null);
+                      setCreatureMove(null);
+                      setCurrentBattleWins(0);
+                    }, 2500);
+                  }
+                } else {
+                  playSound('lose');
+                  setTimeout(() => {
+                    setGameState('exploring');
+                    setSelectedCreature(null);
+                    setBattleResult(null);
+                    setPlayerMove(null);
+                    setCreatureMove(null);
+                    setCurrentBattleWins(0);
+                  }, 2500);
+                }
+              }, 1000);
+            }
+          }, [gameState, countdown, playerMove, creatureMove, selectedCreature, creatureWins]);
+
+          const resetGame = () => {
+            setCreatures(Array.from({ length: 15 }, (_, i) => generateCreature(i)));
+            setParty([]);
+            setCreatureWins({});
+            setGameState('exploring');
+            setSelectedCreature(null);
+            setBattleResult(null);
+            setCurrentBattleWins(0);
+            const newPlayer = {
+              x: WORLD_WIDTH / 2 - PLAYER_SIZE / 2,
+              y: WORLD_HEIGHT / 2 - PLAYER_SIZE / 2,
+              emoji: '🧑‍🌾',
+              isMoving: false,
+              walkCycle: 0,
+              bounceOffset: 0
+            };
+            setPlayer(newPlayer);
+            setCamera({
+              x: WORLD_WIDTH / 2 - VIEWPORT_WIDTH / 2,
+              y: WORLD_HEIGHT / 2 - VIEWPORT_HEIGHT / 2
+            });
+            setTownElements(generateTownElements());
+            setNearbyCreature(null);
+          };
+
+          return (
+            <div className="w-full max-w-4xl mx-auto p-4 bg-green-100 min-h-screen">
+              <div className="text-center mb-4">
+                <h1 className="text-3xl font-bold text-green-800 mb-2">Pineapple Knife Bum Adventure</h1>
+                <div className="text-lg text-green-700">
+                  Party Size: {party.length} | 
+                  Rules: 🍍 beats 🔪, 🔪 beats 🍑, 🍑 beats 🍍
+                </div>
+              </div>
+
+              {/* Game Viewport */}
+              <div 
+                className="relative bg-green-200 border-4 border-green-600 mx-auto overflow-hidden"
+                style={{ width: VIEWPORT_WIDTH, height: VIEWPORT_HEIGHT }}
+              >
+                {/* World Container */}
+                <div 
+                  className="absolute"
+                  style={{
+                    width: WORLD_WIDTH,
+                    height: WORLD_HEIGHT,
+                    left: -camera.x,
+                    top: -camera.y,
+                    background: 'linear-gradient(45deg, #90EE90 25%, transparent 25%), linear-gradient(-45deg, #90EE90 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #90EE90 75%), linear-gradient(-45deg, transparent 75%, #90EE90 75%)',
+                    backgroundSize: '40px 40px',
+                    backgroundPosition: '0 0, 0 20px, 20px -20px, -20px 0px'
+                  }}
+                >
+                  {/* Town Elements */}
+                  {townElements.map(element => (
+                    <div
+                      key={element.id}
+                      className="absolute text-4xl"
+                      style={{
+                        left: element.x,
+                        top: element.y,
+                        width: element.width,
+                        height: element.height,
+                        zIndex: element.type === 'building' ? 2 : 1
+                      }}
+                    >
+                      {element.emoji}
+                    </div>
+                  ))}
+
+                  {/* Creatures */}
+                  {creatures.map(creature => (
+                    <div
+                      key={creature.id}
+                      className={`absolute text-3xl transition-all duration-100 ease-out ${
+                        creature.inParty ? 'opacity-70' : ''
+                      } ${selectedCreature?.id === creature.id ? 'animate-pulse' : ''} ${
+                        nearbyCreature?.id === creature.id ? 'scale-110 animate-pulse' : ''
+                      } ${creature.isPaused ? 'opacity-80' : ''} ${
+                        creature.rarity === 'shiny' ? 'drop-shadow-lg' : ''
+                      } ${creature.rarity === 'rare' ? 'drop-shadow-xl' : ''}`}
+                      style={{
+                        left: creature.x,
+                        top: creature.y + (creature.bounceOffset || 0),
+                        width: CREATURE_SIZE,
+                        height: CREATURE_SIZE,
+                        zIndex: creature.rarity === 'rare' ? 8 : (creature.rarity === 'shiny' ? 7 : 5),
+                        transform: creature.isPaused ? 'none' : `scale(${1 + Math.sin(creature.walkCycle || 0) * 0.03})`,
+                        filter: creature.isPaused ? 'brightness(0.9)' : 
+                               creature.rarity === 'rare' ? 'brightness(1.3) drop-shadow(0 0 8px gold)' :
+                               creature.rarity === 'shiny' ? 'brightness(1.1) drop-shadow(0 0 4px silver)' : 'none'
+                      }}
+                    >
+                      {creature.emoji}
+                      
+                      {/* Sparkle effects for special creatures */}
+                      {(creature.rarity === 'shiny' || creature.rarity === 'rare') && (
+                        <>
+                          <div 
+                            className="absolute text-xs pointer-events-none"
+                            style={{
+                              left: -5 + Math.sin(creature.sparklePhase) * 8,
+                              top: -5 + Math.cos(creature.sparklePhase * 1.3) * 8,
+                              opacity: 0.5 + Math.sin(creature.sparklePhase * 2) * 0.3
+                            }}
+                          >
+                            ✨
+                          </div>
+                          <div 
+                            className="absolute text-xs pointer-events-none"
+                            style={{
+                              right: -5 + Math.cos(creature.sparklePhase * 0.8) * 6,
+                              bottom: -5 + Math.sin(creature.sparklePhase * 1.5) * 6,
+                              opacity: 0.5 + Math.cos(creature.sparklePhase * 1.8) * 0.3
+                            }}
+                          >
+                            ⭐
+                          </div>
+                          {creature.rarity === 'rare' && (
+                            <div 
+                              className="absolute text-xs pointer-events-none"
+                              style={{
+                                left: 15 + Math.sin(creature.sparklePhase * 1.2) * 5,
+                                top: 20 + Math.cos(creature.sparklePhase * 0.9) * 5,
+                                opacity: 0.6 + Math.sin(creature.sparklePhase * 2.5) * 0.2
+                              }}
+                            >
+                              💫
+                            </div>
+                          )}
+                        </>
+                      )}
+                      
+                      {/* Rarity indicator */}
+                      {creature.rarity !== 'common' && (
+                        <div className={`absolute -top-1 -left-1 text-xs ${
+                          creature.rarity === 'rare' ? 'text-yellow-400' : 'text-gray-300'
+                        }`}>
+                          {creature.rarity === 'rare' ? '👑' : '⭐'}
+                        </div>
+                      )}
+                      
+                      {creature.isPaused && (
+                        <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
+                          <div className="text-xs opacity-60">💤</div>
+                        </div>
+                      )}
+                      {creatureWins[creature.id] > 0 && (
+                        <div className="absolute -top-2 -right-2 bg-yellow-400 text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                          {creatureWins[creature.id]}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  {/* Player Character */}
+                  <div
+                    className="absolute text-4xl z-10 transition-all duration-100 ease-out"
+                    style={{
+                      left: player.x,
+                      top: player.y + (player.bounceOffset || 0),
+                      width: PLAYER_SIZE,
+                      height: PLAYER_SIZE,
+                      zIndex: 10,
+                      transform: player.isMoving ? `scale(${1 + Math.sin(player.walkCycle || 0) * 0.02})` : 'none'
+                    }}
+                  >
+                    {player.emoji}
+                  </div>
+
+                  {/* Interaction Indicator */}
+                  {nearbyCreature && (
+                    <div
+                      className="absolute z-20 pointer-events-none"
+                      style={{
+                        left: nearbyCreature.x + CREATURE_SIZE / 2 - 15,
+                        top: nearbyCreature.y - 30,
+                        width: 30,
+                        height: 20,
+                        zIndex: 20
+                      }}
+                    >
+                      <div className="bg-white border-2 border-blue-500 rounded px-1 text-xs text-center animate-bounce">
+                        SPACE
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Particles */}
+                  {particles.map(particle => (
+                    <div
+                      key={particle.id}
+                      className="absolute pointer-events-none text-lg"
+                      style={{
+                        left: particle.x,
+                        top: particle.y,
+                        opacity: particle.life / particle.maxLife,
+                        transform: `scale(${particle.life / particle.maxLife})`,
+                        zIndex: 25
+                      }}
+                    >
+                      {particle.emoji}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Party creatures display */}
+                {party.length > 0 && (
+                  <div className="absolute top-2 left-2 bg-white bg-opacity-80 p-2 rounded">
+                    <div className="text-sm font-bold text-green-800">Your Party:</div>
+                    <div className="flex gap-1">
+                      {party.map(creature => (
+                        <span key={creature.id} className="text-2xl">{creature.emoji}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Overlay for Battle States */}
+              {(gameState === 'battling' || gameState === 'countdown' || gameState === 'revealing' || battleResult) && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                  <div className="bg-white p-8 rounded-xl border-4 border-green-600 max-w-md w-full mx-4 shadow-2xl">
+                    
+                    {/* Battle Interface */}
+                    {gameState === 'battling' && (
+                      <>
+                        <div className="text-center mb-6">
+                          <h2 className="text-3xl font-bold text-green-800 mb-2">
+                            Challenge {selectedCreature?.emoji}!
+                          </h2>
+                          <p className="text-green-700 text-lg">Choose your move:</p>
+                        </div>
+                        <div className="flex flex-col gap-3">
+                          {Object.entries(MOVES).map(([key, emoji]) => (
+                            <button
+                              key={key}
+                              onClick={() => handlePlayerMove(key)}
+                              className="bg-green-500 hover:bg-green-600 text-white px-6 py-4 rounded-lg text-2xl transition-colors flex items-center justify-center gap-3 hover:scale-105 transform"
+                            >
+                              <span className="text-3xl">{emoji}</span>
+                              <span className="text-xl">{MOVE_NAMES[key]}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+
+                    {/* Countdown */}
+                    {gameState === 'countdown' && (
+                      <div className="text-center">
+                        <div className="text-8xl font-bold text-green-800 animate-pulse mb-4">
+                          {countdown > 0 ? countdown : 'GO!'}
+                        </div>
+                        <p className="text-green-600 text-lg">Get ready...</p>
+                      </div>
+                    )}
+
+                    {/* Battle Result */}
+                    {(gameState === 'revealing' || battleResult) && (
+                      <div className="text-center">
+                        <div className="flex justify-center gap-8 mb-6">
+                          <div className="text-center">
+                            <div className="text-lg font-bold text-blue-800 mb-2">You</div>
+                            <div className="text-5xl mb-2">{MOVES[playerMove]}</div>
+                            <div className="text-sm text-gray-600">{MOVE_NAMES[playerMove]}</div>
+                          </div>
+                          <div className="text-4xl self-center text-gray-500">VS</div>
+                          <div className="text-center">
+                            <div className="text-lg font-bold text-red-800 mb-2">{selectedCreature?.emoji}</div>
+                            <div className="text-5xl mb-2">{MOVES[creatureMove]}</div>
+                            <div className="text-sm text-gray-600">{MOVE_NAMES[creatureMove]}</div>
+                          </div>
+                        </div>
+                        
+                        {battleResult && (
+                          <div className="text-2xl font-bold">
+                            {battleResult === 'player' && (
+                              <div className="text-green-600">
+                                🎉 You Win! 🎉
+                                {currentBattleWins >= 3 ? (
+                                  <div className="text-lg text-purple-600 mt-3 p-3 bg-purple-100 rounded-lg">
+                                    <div className="text-2xl mb-1">🎊 RECRUITED! 🎊</div>
+                                    <div>{selectedCreature?.emoji} joins your party!</div>
+                                  </div>
+                                ) : (
+                                  <div className="text-base text-gray-600 mt-2 bg-gray-100 p-2 rounded">
+                                    Progress: {currentBattleWins}/3 wins to recruit
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {battleResult === 'creature' && (
+                              <div className="text-red-600">
+                                💥 You Lose! 💥
+                                <div className="text-sm text-gray-600 mt-2">Try again next time!</div>
+                              </div>
+                            )}
+                            {battleResult === 'tie' && (
+                              <div className="text-yellow-600">
+                                🤝 It's a Tie! 🤝
+                                <div className="text-sm text-gray-600 mt-2">Great minds think alike!</div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                  </div>
+                </div>
+              )}
+
+              {/* Reset Button */}
+              <div className="mt-4 text-center">
+                <button
+                  onClick={resetGame}
+                  className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded transition-colors"
+                >
+                  Reset Game
+                </button>
+              </div>
+
+              {/* Instructions */}
+              <div className="mt-4 bg-white p-4 rounded-lg border border-green-600">
+                <h3 className="font-bold text-green-800 mb-2">How to Play:</h3>
+                <ul className="text-sm text-green-700 space-y-1">
+                  <li>• Move your farmer (🧑‍🌾) with WASD or arrow keys</li>
+                  <li>• Get close to creatures and press SPACE to challenge them</li>
+                  <li>• Win 3 battles against a creature to recruit it to your party</li>
+                  <li>• Recruited creatures will follow you around</li>
+                  <li>• 🍍 Pineapple beats 🔪 Knife (cuts it up)</li>
+                  <li>• 🔪 Knife beats 🍑 Bum (ouch!)</li>
+                  <li>• 🍑 Bum beats 🍍 Pineapple (sits on it)</li>
+                </ul>
+              </div>
+            </div>
+          );
+        }
+
+        const { createRoot } = ReactDOM;
+        const root = createRoot(document.getElementById('root'));
+        root.render(<PineappleKnifeBumGame />);
+    </script>
+</body>
+</html>
