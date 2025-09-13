@@ -36,7 +36,7 @@
         const VIEWPORT_HEIGHT = getViewportDimensions().height;
         const WORLD_WIDTH = 2400; // 3x wider
         const WORLD_HEIGHT = 1800; // 3x taller
-        const CREATURE_SIZE = 40;
+        const CREATURE_SIZE = 80;
         const PLAYER_SIZE = 100;
         const MOVE_SPEED = 1;
         const PLAYER_SPEED = 3;
@@ -140,24 +140,31 @@
         };
 
         const generateCreature = (id) => {
-          const baseEmojis = ['🐱', '🐶', '🐸', '🦊', '🐰', '🐼', '🦔'];
+          const baseCreatures = [
+            { name: 'The Sleepy Bear', src: 'public/art/creature1_SP_The_Sleepy_Bear.png' },
+            { name: 'Gumball', src: 'public/art/creature2_Gumball.png' },
+            { name: 'MerCat', src: 'public/art/creature3_MerCat.png' },
+            { name: 'Babylamb', src: 'public/art/creature4_Babylamb.png' },
+            { name: 'Skullcat', src: 'public/art/creature5_Skullcat.png' }
+          ];
           const isShiny = Math.random() < 0.1; // 10% chance for shiny
           const isRare = Math.random() < 0.05; // 5% chance for rare
-          
-          let emoji = baseEmojis[Math.floor(Math.random() * baseEmojis.length)];
+
+          let creature = baseCreatures[Math.floor(Math.random() * baseCreatures.length)];
           let rarity = 'common';
-          
+
           if (isRare) {
-            // Super rare creatures
-            emoji = ['🦄', '🐲', '🦋', '🐙'][Math.floor(Math.random() * 4)];
+            // Super rare creatures - keep some emojis for now or could add rare creature artwork later
+            creature = { name: 'Rare_Creature', src: ['🦄', '🐲', '🦋', '🐙'][Math.floor(Math.random() * 4)] };
             rarity = 'rare';
           } else if (isShiny) {
             rarity = 'shiny';
           }
-          
+
           return {
             id,
-            emoji,
+            name: creature.name,
+            src: creature.src,
             rarity,
             x: Math.random() * (WORLD_WIDTH - CREATURE_SIZE),
             y: Math.random() * (WORLD_HEIGHT - CREATURE_SIZE),
@@ -179,7 +186,7 @@
         };
 
         const generateSidekick = () => {
-          const SIDEKICK_SIZE = CREATURE_SIZE * 1.5; // 50% bigger
+          const SIDEKICK_SIZE = 60; // Medium size for Derpy
           return {
             id: 'sidekick-0',
             emoji: '👤', // Placeholder, will use custom art
@@ -557,7 +564,7 @@
           const initiateBattle = (creature) => {
             if (creature.inParty || gameState !== 'exploring') return;
             
-            console.log('Initiating battle with:', creature.emoji, creature.id);
+            console.log('Initiating battle with:', creature.name, creature.id);
             playSound('battle');
             setSelectedCreature(creature);
             setCurrentBattleWins(creatureWins[creature.id] || 0);
@@ -1168,7 +1175,19 @@
                           }}
                         />
                       ) : (
-                        creature.emoji
+                        creature.rarity === 'rare' && typeof creature.src === 'string' && creature.src.includes('🦄') ? (
+                          creature.src
+                        ) : (
+                          <img
+                            src={creature.src}
+                            alt={creature.name}
+                            className="w-full h-full object-contain"
+                            style={{
+                              imageRendering: 'pixelated',
+                              transform: creature.facingLeft ? 'scaleX(-1)' : 'scaleX(1)'
+                            }}
+                          />
+                        )
                       )}
                       
                       {/* Sparkle effects for special creatures */}
@@ -1341,8 +1360,17 @@
                             </>
                           ) : (
                             <>
-                              <span className="text-lg sm:text-xl">{creature.emoji}</span>
-                              <span className="text-xs sm:text-sm text-green-700">Creature</span>
+                              {creature.rarity === 'rare' && typeof creature.src === 'string' && creature.src.includes('🦄') ? (
+                                <span className="text-lg sm:text-xl">{creature.src}</span>
+                              ) : (
+                                <img
+                                  src={creature.src}
+                                  alt={creature.name}
+                                  className="w-6 h-6 sm:w-8 sm:h-8 object-contain"
+                                  style={{ imageRendering: 'pixelated' }}
+                                />
+                              )}
+                              <span className="text-xs sm:text-sm text-green-700">{creature.name}</span>
                             </>
                           )}
                         </div>
@@ -1483,7 +1511,7 @@
                       <>
                         <div className="text-center mb-4 sm:mb-6">
                           <h2 className="text-2xl sm:text-3xl font-bold text-green-800 mb-2">
-                            Challenge {selectedCreature?.emoji}!
+                            Challenge {selectedCreature?.name}!
                           </h2>
                           {!battleOptionsReady ? (
                             <p className="text-green-700 text-base sm:text-lg">Get ready...</p>
@@ -1529,7 +1557,18 @@
                           </div>
                           <div className="text-4xl self-center text-gray-500">VS</div>
                           <div className="text-center">
-                            <div className="text-lg font-bold text-red-800 mb-2">{selectedCreature?.emoji}</div>
+                            <div className="text-lg font-bold text-red-800 mb-2">
+                              {selectedCreature?.rarity === 'rare' && typeof selectedCreature?.src === 'string' && selectedCreature?.src.includes('🦄') ? (
+                                selectedCreature?.src
+                              ) : (
+                                <img
+                                  src={selectedCreature?.src}
+                                  alt={selectedCreature?.name}
+                                  className="w-16 h-16 mx-auto object-contain"
+                                  style={{ imageRendering: 'pixelated' }}
+                                />
+                              )}
+                            </div>
                             <div className="text-5xl mb-2">{MOVES[creatureMove]}</div>
                             <div className="text-sm text-gray-600">{MOVE_NAMES[creatureMove]}</div>
                           </div>
@@ -1543,7 +1582,7 @@
                                 {currentBattleWins >= 3 ? (
                                   <div className="text-lg text-purple-600 mt-3 p-3 bg-purple-100 rounded-lg">
                                     <div className="text-2xl mb-1">🎊 RECRUITED! 🎊</div>
-                                    <div>{selectedCreature?.emoji} joins your party!</div>
+                                    <div>{selectedCreature?.name} joins your party!</div>
                                   </div>
                                 ) : (
                                   <div className="text-base text-gray-600 mt-2 bg-gray-100 p-2 rounded">
