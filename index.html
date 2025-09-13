@@ -17,17 +17,98 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        const VIEWPORT_WIDTH = 800;
-        const VIEWPORT_HEIGHT = 600;
+        // Responsive viewport dimensions
+        const getViewportDimensions = () => {
+          const screenWidth = window.innerWidth;
+          const screenHeight = window.innerHeight;
+          
+          // Mobile-first: use most of the screen, but cap for desktop
+          const maxWidth = Math.min(screenWidth - 20, 800);
+          const maxHeight = Math.min(screenHeight - 200, 600); // Leave room for UI
+          
+          return {
+            width: maxWidth,
+            height: maxHeight
+          };
+        };
+        
+        const VIEWPORT_WIDTH = getViewportDimensions().width;
+        const VIEWPORT_HEIGHT = getViewportDimensions().height;
         const WORLD_WIDTH = 2400; // 3x wider
         const WORLD_HEIGHT = 1800; // 3x taller
         const CREATURE_SIZE = 40;
-        const PLAYER_SIZE = 50;
+        const PLAYER_SIZE = 100;
         const MOVE_SPEED = 1;
         const PLAYER_SPEED = 3;
         const INTERACTION_DISTANCE = 60;
+        
+        // Tile system constants
+        const TILE_SIZE = 128; // Each tile is 128x128 pixels from the 1280x1280 sheet (1280/10=128)
+        const TILESHEET_SIZE = 1280;
+        const TILES_PER_ROW = 10;
+        const WORLD_TILES_X = Math.ceil(WORLD_WIDTH / TILE_SIZE);
+        const WORLD_TILES_Y = Math.ceil(WORLD_HEIGHT / TILE_SIZE);
+        
+        // Tile types mapping (y, x coordinates in tilesheet)
+        const TILE_TYPES = {
+          GRASS: { x: 0, y: 0, name: 'grass' },
+          SEA: { x: 2, y: 0, name: 'sea' },
+          PEBBLEBEACH: { x: 1, y: 0, name: 'pebblebeach' },
+          ROAD_VERTICAL: { x: 3, y: 0, name: 'road_vertical' },
+          ROAD_HORIZONTAL: { x: 4, y: 0, name: 'road_horizontal' },
+          ROAD_CROSS: { x: 5, y: 0, name: 'road_cross' }
+        };
+        
+        // Generate tile map for the world - now returns base and overlay layers
+        const generateTileMap = () => {
+          const baseTileMap = [];
+          const overlayTileMap = [];
+          
+          for (let y = 0; y < WORLD_TILES_Y; y++) {
+            const baseRow = [];
+            const overlayRow = [];
+            
+            for (let x = 0; x < WORLD_TILES_X; x++) {
+              let baseTile = TILE_TYPES.GRASS; // Always start with grass
+              let overlayTile = null; // No overlay by default
+              
+              // Create some variety in the world
+              const worldX = x * TILE_SIZE;
+              const worldY = y * TILE_SIZE;
+              
+              // Add sea around edges (replaces grass entirely)
+              if (x === 0 || y === 0 || x === WORLD_TILES_X - 1 || y === WORLD_TILES_Y - 1) {
+                baseTile = Math.random() < 0.7 ? TILE_TYPES.SEA : TILE_TYPES.PEBBLEBEACH;
+              }
+              // Add some random beaches near water (replaces grass entirely)
+              else if ((x === 1 || y === 1 || x === WORLD_TILES_X - 2 || y === WORLD_TILES_Y - 2) && Math.random() < 0.5) {
+                baseTile = TILE_TYPES.PEBBLEBEACH;
+              }
+              
+              // Add roads as overlays (grass shows through)
+              if (x === Math.floor(WORLD_TILES_X / 2)) {
+                // Vertical road through middle
+                overlayTile = TILE_TYPES.ROAD_VERTICAL;
+                if (y === Math.floor(WORLD_TILES_Y / 2)) {
+                  overlayTile = TILE_TYPES.ROAD_CROSS; // Crossroads
+                }
+              }
+              else if (y === Math.floor(WORLD_TILES_Y / 2)) {
+                // Horizontal road through middle
+                overlayTile = TILE_TYPES.ROAD_HORIZONTAL;
+              }
+              
+              baseRow.push(baseTile);
+              overlayRow.push(overlayTile);
+            }
+            baseTileMap.push(baseRow);
+            overlayTileMap.push(overlayRow);
+          }
+          
+          return { baseTileMap, overlayTileMap };
+        };
 
-        // Game rules: Pineapple beats Knife, Knife beats Bum, Bum beats Pineapple
+        // Game rules: Pineapple beats Bum, Bum beats Knife, Knife beats Pineapple
         const MOVES = {
           PINEAPPLE: '🍍',
           KNIFE: '🔪', 
@@ -43,9 +124,9 @@
         const getWinner = (playerMove, creatureMove) => {
           if (playerMove === creatureMove) return 'tie';
           if (
-            (playerMove === 'PINEAPPLE' && creatureMove === 'KNIFE') ||
-            (playerMove === 'KNIFE' && creatureMove === 'BUM') ||
-            (playerMove === 'BUM' && creatureMove === 'PINEAPPLE')
+            (playerMove === 'PINEAPPLE' && creatureMove === 'BUM') ||
+            (playerMove === 'BUM' && creatureMove === 'KNIFE') ||
+            (playerMove === 'KNIFE' && creatureMove === 'PINEAPPLE')
           ) {
             return 'player';
           }
@@ -90,7 +171,36 @@
             isPaused: false,
             pauseTimer: 0,
             walkCycle: 0,
-            sparklePhase: Math.random() * Math.PI * 2
+            sparklePhase: Math.random() * Math.PI * 2,
+            direction: 'down',
+            facingLeft: false,
+            isSidekick: false
+          };
+        };
+
+        const generateSidekick = () => {
+          const SIDEKICK_SIZE = CREATURE_SIZE * 1.5; // 50% bigger
+          return {
+            id: 'sidekick-0',
+            emoji: '👤', // Placeholder, will use custom art
+            rarity: 'sidekick',
+            x: WORLD_WIDTH / 2 - SIDEKICK_SIZE / 2 - 60,
+            y: WORLD_HEIGHT / 2 - SIDEKICK_SIZE / 2,
+            dx: 0,
+            dy: 0,
+            wins: 0,
+            inParty: true,
+            // Animation state
+            bounceOffset: 0,
+            bouncePhase: 0,
+            isPaused: false,
+            pauseTimer: 0,
+            walkCycle: 0,
+            sparklePhase: 0,
+            direction: 'down',
+            facingLeft: false,
+            isSidekick: true,
+            size: SIDEKICK_SIZE
           };
         };
 
@@ -168,20 +278,74 @@
 
         const generateTownElements = () => {
           const elements = [];
-          // Houses
-          const houseEmojis = ['🏠', '🏡', '🏘️', '🏢', '🏪', '🏬'];
-          for (let i = 0; i < 15; i++) {
-            elements.push({
-              id: `house-${i}`,
-              emoji: houseEmojis[Math.floor(Math.random() * houseEmojis.length)],
-              x: Math.random() * (WORLD_WIDTH - 80),
-              y: Math.random() * (WORLD_HEIGHT - 80),
-              width: 80,
-              height: 80,
+          
+          // Custom PNG Buildings - using your artwork (doubled size)
+          const buildings = [
+            { src: 'public/art/building1.png', width: 240, height: 240 },
+            { src: 'public/art/building2.png', width: 240, height: 240 },
+            { src: 'public/art/building3.png', width: 240, height: 240 },
+            { src: 'public/art/building4.png', width: 240, height: 240 },
+            { src: 'public/art/building5.png', width: 240, height: 240 },
+            { src: 'public/art/buildingpalacepier.png', width: 240, height: 240 }
+          ];
+          
+          // Place each building with better distribution
+          const placedBuildings = [];
+          
+          buildings.forEach((building, i) => {
+            const minSpacing = 300; // Minimum distance between buildings (increased for larger buildings)
+            let x, y;
+            let attempts = 0;
+            let validPosition = false;
+            
+            do {
+              // Create zones to better distribute buildings
+              const zoneWidth = WORLD_WIDTH / 3;
+              const zoneHeight = WORLD_HEIGHT / 2;
+              const zoneX = (i % 3) * zoneWidth;
+              const zoneY = Math.floor(i / 3) * zoneHeight;
+              
+              x = zoneX + Math.random() * (zoneWidth - building.width);
+              y = zoneY + Math.random() * (zoneHeight - building.height);
+              
+              // Check distance from other buildings
+              validPosition = placedBuildings.every(placed => {
+                const dx = x - placed.x;
+                const dy = y - placed.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                return distance >= minSpacing;
+              });
+              
+              attempts++;
+            } while (!validPosition && attempts < 100);
+            
+            const buildingData = {
+              id: `building-${i}`,
+              src: building.src,
+              x: x,
+              y: y,
+              width: building.width,
+              height: building.height,
               type: 'building'
-            });
-          }
-          // Trees and decorations
+            };
+            
+            elements.push(buildingData);
+            placedBuildings.push(buildingData);
+          });
+          
+          
+          // Add NPC
+          elements.push({
+            id: 'npc-quest-giver',
+            src: 'public/art/NPC_Mira.png',
+            x: WORLD_WIDTH / 2 + 200, // Position to the right of center
+            y: WORLD_HEIGHT / 2 - 100, // Slightly above center
+            width: 120,
+            height: 120,
+            type: 'npc'
+          });
+
+          // Trees and decorations (keeping these as emojis)
           const decorEmojis = ['🌳', '🌲', '🌸', '💐', '⛲', '🪨'];
           for (let i = 0; i < 25; i++) {
             elements.push({
@@ -195,6 +359,28 @@
             });
           }
           return elements;
+        };
+
+        // TileRenderer component for rendering individual tiles
+        const TileRenderer = ({ tile, x, y }) => {
+          const tileX = tile.x * TILE_SIZE;
+          const tileY = tile.y * TILE_SIZE;
+          
+          return (
+            <div
+              className="absolute"
+              style={{
+                left: x * TILE_SIZE,
+                top: y * TILE_SIZE,
+                width: TILE_SIZE,
+                height: TILE_SIZE,
+                backgroundImage: 'url(public/art/tilesheetpineapple.png)',
+                backgroundPosition: `-${tileX}px -${tileY}px`,
+                backgroundSize: `${TILESHEET_SIZE}px ${TILESHEET_SIZE}px`,
+                imageRendering: 'pixelated'
+              }}
+            />
+          );
         };
 
         function PineappleKnifeBumGame() {
@@ -214,17 +400,35 @@
             isMoving: false,
             walkCycle: 0,
             bounceOffset: 0,
-            stepCount: 0
+            stepCount: 0,
+            direction: 'down', // 'left', 'right', 'up', 'down'
+            facingLeft: false
           });
           const [camera, setCamera] = useState({
             x: WORLD_WIDTH / 2 - VIEWPORT_WIDTH / 2,
             y: WORLD_HEIGHT / 2 - VIEWPORT_HEIGHT / 2
           });
           const [townElements, setTownElements] = useState([]);
+          const [baseTileMap, setBaseTileMap] = useState([]);
+          const [overlayTileMap, setOverlayTileMap] = useState([]);
           const [keys, setKeys] = useState({});
           const [nearbyCreature, setNearbyCreature] = useState(null);
           const [currentBattleWins, setCurrentBattleWins] = useState(0);
           const [particles, setParticles] = useState([]);
+          const [nearbyNPC, setNearbyNPC] = useState(null);
+          const [showNPCDialogue, setShowNPCDialogue] = useState(false);
+          const [npcDialogue, setNpcDialogue] = useState('');
+          const [battleOptionsReady, setBattleOptionsReady] = useState(false);
+          const [touchControls, setTouchControls] = useState({
+            isActive: false,
+            startX: 0,
+            startY: 0,
+            currentX: 0,
+            currentY: 0,
+            moveX: 0,
+            moveY: 0
+          });
+          const [isMobile, setIsMobile] = useState(false);
           const animationRef = useRef();
 
           // Particle system
@@ -246,11 +450,21 @@
             setParticles(prev => [...prev, ...newParticles]);
           };
 
-          // Initialize creatures and town
+          // Initialize creatures, town, and tile map
           useEffect(() => {
             const initialCreatures = Array.from({ length: 15 }, (_, i) => generateCreature(i));
-            setCreatures(initialCreatures);
+            const sidekick = generateSidekick();
+            
+            setCreatures([...initialCreatures, sidekick]);
+            setParty([sidekick]);
             setTownElements(generateTownElements());
+            
+            const { baseTileMap, overlayTileMap } = generateTileMap();
+            setBaseTileMap(baseTileMap);
+            setOverlayTileMap(overlayTileMap);
+            
+            // Detect mobile device
+            setIsMobile('ontouchstart' in window || navigator.maxTouchPoints > 0);
           }, []);
 
           // Keyboard event listeners
@@ -259,14 +473,20 @@
               setKeys(prev => ({ ...prev, [e.key.toLowerCase()]: true }));
               
               // Handle interaction with space or enter
-              if ((e.key === ' ' || e.key === 'Enter') && nearbyCreature && gameState === 'exploring') {
+              if ((e.key === ' ' || e.key === 'Enter') && gameState === 'exploring') {
                 e.preventDefault();
-                playSound('battle');
-                setSelectedCreature(nearbyCreature);
-                setCurrentBattleWins(creatureWins[nearbyCreature.id] || 0);
-                setGameState('battling');
-                setPlayerMove(null);
-                setBattleResult(null);
+                if (nearbyCreature) {
+                  initiateBattle(nearbyCreature);
+                } else if (nearbyNPC) {
+                  // Show NPC dialogue
+                  const partySize = party.length - 1; // Subtract 1 for Derpy (sidekick doesn't count as recruited friend)
+                  if (partySize >= 5) {
+                    setNpcDialogue("Perfect! Now that you have 5 friends in your party, we can TAKEDOWN our enemy! The time has come to face our greatest challenge!");
+                  } else {
+                    setNpcDialogue(`Greetings, Zoe! You currently have ${partySize} recruited friends. When you have 5 friends in your party, we can TAKEDOWN our enemy! Keep battling creatures to recruit more allies.`);
+                  }
+                  setShowNPCDialogue(true);
+                }
               }
             };
 
@@ -283,6 +503,72 @@
             };
           }, [nearbyCreature, gameState]);
 
+          // Simplified touch controls for mobile movement
+          const handleViewportTouchStart = (e) => {
+            if (!isMobile || gameState !== 'exploring') return;
+            
+            const touch = e.touches[0];
+            setTouchControls(prev => ({
+              ...prev,
+              isActive: true,
+              startX: touch.clientX,
+              startY: touch.clientY,
+              currentX: touch.clientX,
+              currentY: touch.clientY
+            }));
+          };
+
+          const handleViewportTouchMove = (e) => {
+            if (!isMobile || !touchControls.isActive) return;
+            e.preventDefault();
+            const touch = e.touches[0];
+            
+            const deltaX = touch.clientX - touchControls.startX;
+            const deltaY = touch.clientY - touchControls.startY;
+            const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            
+            // Normalize movement (max distance = 50px)
+            const maxDistance = 50;
+            const normalizedDistance = Math.min(distance, maxDistance) / maxDistance;
+            
+            setTouchControls(prev => ({
+              ...prev,
+              currentX: touch.clientX,
+              currentY: touch.clientY,
+              moveX: (deltaX / maxDistance) * normalizedDistance,
+              moveY: (deltaY / maxDistance) * normalizedDistance
+            }));
+          };
+
+          const handleViewportTouchEnd = (e) => {
+            if (!isMobile) return;
+            setTouchControls(prev => ({
+              ...prev,
+              isActive: false,
+              moveX: 0,
+              moveY: 0
+            }));
+          };
+
+          // Unified battle initiation function
+          const initiateBattle = (creature) => {
+            if (creature.inParty || gameState !== 'exploring') return;
+            
+            console.log('Initiating battle with:', creature.emoji, creature.id);
+            playSound('battle');
+            setSelectedCreature(creature);
+            setCurrentBattleWins(creatureWins[creature.id] || 0);
+            setGameState('battling');
+            setPlayerMove(null);
+            setBattleResult(null);
+            setBattleOptionsReady(false);
+            
+            // Add delay before showing battle options to prevent accidental taps
+            setTimeout(() => {
+              setBattleOptionsReady(true);
+            }, 800); // 800ms delay
+          };
+
           // Animation loop for player and creature movement
           useEffect(() => {
             const animate = () => {
@@ -292,22 +578,62 @@
                   let newX = prev.x;
                   let newY = prev.y;
                   let isMoving = false;
+                  let newDirection = prev.direction;
+                  let newFacingLeft = prev.facingLeft;
 
+                  // Keyboard controls
                   if (keys['w'] || keys['arrowup']) {
                     newY -= PLAYER_SPEED;
                     isMoving = true;
+                    newDirection = 'up';
                   }
                   if (keys['s'] || keys['arrowdown']) {
                     newY += PLAYER_SPEED;
                     isMoving = true;
+                    newDirection = 'down';
                   }
                   if (keys['a'] || keys['arrowleft']) {
                     newX -= PLAYER_SPEED;
                     isMoving = true;
+                    newDirection = 'left';
+                    newFacingLeft = false;
                   }
                   if (keys['d'] || keys['arrowright']) {
                     newX += PLAYER_SPEED;
                     isMoving = true;
+                    newDirection = 'right';
+                    newFacingLeft = true;
+                  }
+
+                  // Touch controls
+                  if (touchControls.isActive) {
+                    const moveX = touchControls.moveX * PLAYER_SPEED * 0.8;
+                    const moveY = touchControls.moveY * PLAYER_SPEED * 0.8;
+                    newX += moveX;
+                    newY += moveY;
+                    
+                    if (Math.abs(touchControls.moveX) > 0.1 || Math.abs(touchControls.moveY) > 0.1) {
+                      isMoving = true;
+                      
+                      // Determine direction based on touch movement
+                      if (Math.abs(moveX) > Math.abs(moveY)) {
+                        // Horizontal movement is dominant
+                        if (moveX > 0) {
+                          newDirection = 'right';
+                          newFacingLeft = true;
+                        } else {
+                          newDirection = 'left';
+                          newFacingLeft = false;
+                        }
+                      } else {
+                        // Vertical movement is dominant
+                        if (moveY > 0) {
+                          newDirection = 'down';
+                        } else {
+                          newDirection = 'up';
+                        }
+                      }
+                    }
                   }
 
                   // Keep player within world bounds
@@ -337,7 +663,9 @@
                     isMoving, 
                     walkCycle: newWalkCycle,
                     bounceOffset: newBounceOffset,
-                    stepCount: newStepCount
+                    stepCount: newStepCount,
+                    direction: newDirection,
+                    facingLeft: newFacingLeft
                   };
                 });
 
@@ -363,19 +691,43 @@
                   const updatedCreatures = prev.map(creature => {
                     if (creature.inParty) {
                       // Make party creatures follow the player
-                      const targetX = player.x - 80 - (creature.id * 30);
+                      const offsetX = creature.isSidekick ? -60 : (-80 - ((creature.id % 100) * 30));
+                      const targetX = player.x + offsetX;
                       const targetY = player.y;
                       const dx = targetX - creature.x;
                       const dy = targetY - creature.y;
                       const distance = Math.sqrt(dx * dx + dy * dy);
                       
+                      let newDirection = creature.direction;
+                      let newFacingLeft = creature.facingLeft;
+                      
                       if (distance > 5) {
                         const moveX = (dx / distance) * PLAYER_SPEED * 0.8;
                         const moveY = (dy / distance) * PLAYER_SPEED * 0.8;
+                        
+                        // Update direction based on movement
+                        if (Math.abs(moveX) > Math.abs(moveY)) {
+                          if (moveX > 0) {
+                            newDirection = 'right';
+                            newFacingLeft = true;
+                          } else {
+                            newDirection = 'left';
+                            newFacingLeft = false;
+                          }
+                        } else {
+                          if (moveY > 0) {
+                            newDirection = 'down';
+                          } else {
+                            newDirection = 'up';
+                          }
+                        }
+                        
                         return { 
                           ...creature, 
                           x: creature.x + moveX, 
-                          y: creature.y + moveY 
+                          y: creature.y + moveY,
+                          direction: newDirection,
+                          facingLeft: newFacingLeft
                         };
                       }
                       return creature;
@@ -464,6 +816,12 @@
                     !creature.inParty && getDistance(player, creature) < INTERACTION_DISTANCE
                   );
                   setNearbyCreature(nearby || null);
+
+                  // Check for nearby NPC
+                  const nearbyNPCElement = townElements.find(element => 
+                    element.type === 'npc' && getDistance(player, element) < INTERACTION_DISTANCE
+                  );
+                  setNearbyNPC(nearbyNPCElement || null);
 
                   return updatedCreatures;
                 });
@@ -567,8 +925,11 @@
           }, [gameState, countdown, playerMove, creatureMove, selectedCreature, creatureWins]);
 
           const resetGame = () => {
-            setCreatures(Array.from({ length: 15 }, (_, i) => generateCreature(i)));
-            setParty([]);
+            const initialCreatures = Array.from({ length: 15 }, (_, i) => generateCreature(i));
+            const sidekick = generateSidekick();
+            
+            setCreatures([...initialCreatures, sidekick]);
+            setParty([sidekick]);
             setCreatureWins({});
             setGameState('exploring');
             setSelectedCreature(null);
@@ -580,7 +941,10 @@
               emoji: '🧑‍🌾',
               isMoving: false,
               walkCycle: 0,
-              bounceOffset: 0
+              bounceOffset: 0,
+              stepCount: 0,
+              direction: 'down',
+              facingLeft: false
             };
             setPlayer(newPlayer);
             setCamera({
@@ -588,24 +952,45 @@
               y: WORLD_HEIGHT / 2 - VIEWPORT_HEIGHT / 2
             });
             setTownElements(generateTownElements());
+            
+            const { baseTileMap, overlayTileMap } = generateTileMap();
+            setBaseTileMap(baseTileMap);
+            setOverlayTileMap(overlayTileMap);
+            
             setNearbyCreature(null);
           };
 
           return (
-            <div className="w-full max-w-4xl mx-auto p-4 bg-green-100 min-h-screen">
-              <div className="text-center mb-4">
-                <h1 className="text-3xl font-bold text-green-800 mb-2">Pineapple Knife Bum Adventure</h1>
-                <div className="text-lg text-green-700">
-                  Party Size: {party.length} | 
-                  Rules: 🍍 beats 🔪, 🔪 beats 🍑, 🍑 beats 🍍
+            <div className="w-full min-h-screen bg-green-100 flex flex-col">
+              {/* Header - Compact for mobile */}
+              <div className="text-center p-2 bg-green-200 shadow-sm">
+                <div className="flex items-center justify-center mb-2">
+                  <img 
+                    src="public/art/logo.png" 
+                    alt="Game Logo" 
+                    className="h-32 sm:h-48 object-contain"
+                    style={{ imageRendering: 'pixelated' }}
+                  />
+                </div>
+                <div className="text-sm sm:text-lg text-green-700">
+                  Zoe's Party: {party.length} | 🍍→🍑 🍑→🔪 🔪→🍍
                 </div>
               </div>
 
               {/* Game Viewport */}
-              <div 
-                className="relative bg-green-200 border-4 border-green-600 mx-auto overflow-hidden"
-                style={{ width: VIEWPORT_WIDTH, height: VIEWPORT_HEIGHT }}
-              >
+              <div className="flex-1 flex items-center justify-center p-2">
+                <div 
+                  className="relative bg-green-200 border-4 border-green-600 overflow-hidden touch-none"
+                  style={{ 
+                    width: VIEWPORT_WIDTH, 
+                    height: VIEWPORT_HEIGHT,
+                    maxWidth: '100vw',
+                    maxHeight: '70vh'
+                  }}
+                  onTouchStart={isMobile ? handleViewportTouchStart : undefined}
+                  onTouchMove={isMobile ? handleViewportTouchMove : undefined}
+                  onTouchEnd={isMobile ? handleViewportTouchEnd : undefined}
+                >
                 {/* World Container */}
                 <div 
                   className="absolute"
@@ -613,17 +998,40 @@
                     width: WORLD_WIDTH,
                     height: WORLD_HEIGHT,
                     left: -camera.x,
-                    top: -camera.y,
-                    background: 'linear-gradient(45deg, #90EE90 25%, transparent 25%), linear-gradient(-45deg, #90EE90 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #90EE90 75%), linear-gradient(-45deg, transparent 75%, #90EE90 75%)',
-                    backgroundSize: '40px 40px',
-                    backgroundPosition: '0 0, 0 20px, 20px -20px, -20px 0px'
+                    top: -camera.y
                   }}
                 >
+                  {/* Base tiles (grass, sea, beach) */}
+                  {baseTileMap.map((row, y) => 
+                    row.map((tile, x) => (
+                      <TileRenderer 
+                        key={`base-${x}-${y}`} 
+                        tile={tile} 
+                        x={x} 
+                        y={y} 
+                      />
+                    ))
+                  )}
+                  
+                  {/* Overlay tiles (roads with transparent backgrounds) */}
+                  {overlayTileMap.map((row, y) => 
+                    row.map((tile, x) => 
+                      tile ? (
+                        <TileRenderer 
+                          key={`overlay-${x}-${y}`} 
+                          tile={tile} 
+                          x={x} 
+                          y={y} 
+                        />
+                      ) : null
+                    )
+                  )}
+                
                   {/* Town Elements */}
                   {townElements.map(element => (
                     <div
                       key={element.id}
-                      className="absolute text-4xl"
+                      className="absolute"
                       style={{
                         left: element.x,
                         top: element.y,
@@ -632,34 +1040,117 @@
                         zIndex: element.type === 'building' ? 2 : 1
                       }}
                     >
-                      {element.emoji}
+                      {element.type === 'building' ? (
+                        <img
+                          src={element.src}
+                          alt={`Building ${element.id}`}
+                          className="w-full h-full object-contain"
+                          style={{
+                            imageRendering: 'pixelated' // For crisp pixel art if needed
+                          }}
+                        />
+                      ) : element.type === 'npc' ? (
+                        <div 
+                          className={`transition-all duration-200 ${
+                            nearbyNPC?.id === element.id ? 'animate-bounce scale-110' : ''
+                          } ${isMobile ? 'cursor-pointer touch-manipulation select-none' : 'cursor-pointer'}`}
+                          style={{
+                            width: element.width + (isMobile ? 20 : 0), // Bigger touch target on mobile
+                            height: element.height + (isMobile ? 20 : 0),
+                            padding: isMobile ? '10px' : '0', // Extra padding for easier tapping
+                            margin: isMobile ? '-10px' : '0',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}
+                          onClick={!isMobile ? () => {
+                            const partySize = party.length - 1;
+                            if (partySize >= 5) {
+                              setNpcDialogue("Perfect! Now that you have 5 friends in your party, we can TAKEDOWN our enemy! The time has come to face our greatest challenge!");
+                            } else {
+                              setNpcDialogue(`Greetings, Zoe! You currently have ${partySize} recruited friends. When you have 5 friends in your party, we can TAKEDOWN our enemy! Keep battling creatures to recruit more allies.`);
+                            }
+                            setShowNPCDialogue(true);
+                          } : undefined}
+                          onPointerDown={isMobile ? (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const partySize = party.length - 1;
+                            if (partySize >= 5) {
+                              setNpcDialogue("Perfect! Now that you have 5 friends in your party, we can TAKEDOWN our enemy! The time has come to face our greatest challenge!");
+                            } else {
+                              setNpcDialogue(`Greetings, Zoe! You currently have ${partySize} recruited friends. When you have 5 friends in your party, we can TAKEDOWN our enemy! Keep battling creatures to recruit more allies.`);
+                            }
+                            setShowNPCDialogue(true);
+                          } : undefined}
+                        >
+                          <img
+                            src={element.src}
+                            alt="Mira"
+                            className="w-full h-full object-contain"
+                            style={{
+                              imageRendering: 'pixelated'
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="text-4xl">
+                          {element.emoji}
+                        </div>
+                      )}
                     </div>
                   ))}
 
                   {/* Creatures */}
-                  {creatures.map(creature => (
+                  {creatures.map(creature => {
+                    const isNearby = nearbyCreature?.id === creature.id;
+                    const canInteract = !creature.inParty && (isNearby || isMobile);
+                    
+                    return (
                     <div
                       key={creature.id}
                       className={`absolute text-3xl transition-all duration-100 ease-out ${
-                        creature.inParty ? 'opacity-70' : ''
+                        creature.inParty && !creature.isSidekick ? 'opacity-70' : ''
                       } ${selectedCreature?.id === creature.id ? 'animate-pulse' : ''} ${
-                        nearbyCreature?.id === creature.id ? 'scale-110 animate-pulse' : ''
+                        isNearby ? 'scale-110 animate-pulse' : ''
                       } ${creature.isPaused ? 'opacity-80' : ''} ${
                         creature.rarity === 'shiny' ? 'drop-shadow-lg' : ''
-                      } ${creature.rarity === 'rare' ? 'drop-shadow-xl' : ''}`}
+                      } ${creature.rarity === 'rare' ? 'drop-shadow-xl' : ''} ${
+                        canInteract && isMobile ? 'cursor-pointer' : ''
+                      } ${!creature.inParty && gameState === 'exploring' ? 'touch-manipulation select-none' : ''}`}
                       style={{
                         left: creature.x,
                         top: creature.y + (creature.bounceOffset || 0),
-                        width: CREATURE_SIZE,
-                        height: CREATURE_SIZE,
-                        zIndex: creature.rarity === 'rare' ? 8 : (creature.rarity === 'shiny' ? 7 : 5),
+                        width: (creature.size || CREATURE_SIZE) + (isMobile ? 20 : 0), // Bigger touch target on mobile
+                        height: (creature.size || CREATURE_SIZE) + (isMobile ? 20 : 0),
+                        zIndex: creature.rarity === 'rare' ? 8 : (creature.rarity === 'shiny' ? 7 : (creature.isSidekick ? 6 : 5)),
                         transform: creature.isPaused ? 'none' : `scale(${1 + Math.sin(creature.walkCycle || 0) * 0.03})`,
                         filter: creature.isPaused ? 'brightness(0.9)' : 
                                creature.rarity === 'rare' ? 'brightness(1.3) drop-shadow(0 0 8px gold)' :
-                               creature.rarity === 'shiny' ? 'brightness(1.1) drop-shadow(0 0 4px silver)' : 'none'
+                               creature.rarity === 'shiny' ? 'brightness(1.1) drop-shadow(0 0 4px silver)' : 'none',
+                        padding: isMobile ? '10px' : '0', // Extra padding for easier tapping
+                        margin: isMobile ? '-10px' : '0'
                       }}
+                      onClick={!creature.inParty && gameState === 'exploring' && !isMobile ? () => initiateBattle(creature) : undefined}
+                      onPointerDown={!creature.inParty && isMobile && gameState === 'exploring' ? (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        initiateBattle(creature);
+                      } : undefined}
                     >
-                      {creature.emoji}
+                      {creature.isSidekick ? (
+                        <img
+                          src={creature.direction === 'up' ? 'public/art/sidekickback.png' : 'public/art/sidekickfront.png'}
+                          alt="Derpy"
+                          className="w-full h-full object-contain"
+                          style={{
+                            imageRendering: 'pixelated',
+                            transform: creature.facingLeft ? 'scaleX(-1)' : 'scaleX(1)'
+                          }}
+                        />
+                      ) : (
+                        creature.emoji
+                      )}
                       
                       {/* Sparkle effects for special creatures */}
                       {(creature.rarity === 'shiny' || creature.rarity === 'rare') && (
@@ -719,37 +1210,77 @@
                         </div>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
 
                   {/* Player Character */}
                   <div
-                    className="absolute text-4xl z-10 transition-all duration-100 ease-out"
+                    className="absolute z-10 transition-all duration-100 ease-out"
                     style={{
                       left: player.x,
                       top: player.y + (player.bounceOffset || 0),
                       width: PLAYER_SIZE,
                       height: PLAYER_SIZE,
                       zIndex: 10,
-                      transform: player.isMoving ? `scale(${1 + Math.sin(player.walkCycle || 0) * 0.02})` : 'none'
+                      transform: `${player.isMoving ? `scale(${1 + Math.sin(player.walkCycle || 0) * 0.02})` : 'scale(1)'} ${player.facingLeft ? 'scaleX(-1)' : 'scaleX(1)'}`
                     }}
                   >
-                    {player.emoji}
+                    <img
+                      src={player.direction === 'up' ? 'public/art/playercharacterback.png' : 'public/art/playercharacter.png'}
+                      alt="Zoe"
+                      className="w-full h-full object-contain"
+                      style={{
+                        imageRendering: 'pixelated'
+                      }}
+                    />
                   </div>
 
                   {/* Interaction Indicator */}
                   {nearbyCreature && (
                     <div
-                      className="absolute z-20 pointer-events-none"
+                      className={`absolute z-20 ${isMobile ? 'cursor-pointer' : 'pointer-events-none'}`}
                       style={{
-                        left: nearbyCreature.x + CREATURE_SIZE / 2 - 15,
-                        top: nearbyCreature.y - 30,
-                        width: 30,
-                        height: 20,
+                        left: (nearbyCreature.x - camera.x) + CREATURE_SIZE / 2 - 30,
+                        top: (nearbyCreature.y - camera.y) - 45,
+                        width: 60,
+                        height: 40,
                         zIndex: 20
                       }}
+                      onClick={isMobile ? () => initiateBattle(nearbyCreature) : undefined}
                     >
-                      <div className="bg-white border-2 border-blue-500 rounded px-1 text-xs text-center animate-bounce">
-                        SPACE
+                      <div className={`bg-blue-500 text-white border-2 border-blue-600 rounded px-2 py-1 text-sm font-bold text-center animate-bounce shadow-lg ${
+                        isMobile ? 'min-h-[30px] min-w-[50px] flex items-center justify-center touch-manipulation' : ''
+                      }`}>
+                        {isMobile ? 'TAP' : 'SPACE'}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* NPC Interaction Indicator */}
+                  {nearbyNPC && (
+                    <div
+                      className={`absolute z-20 ${isMobile ? 'cursor-pointer' : 'pointer-events-none'}`}
+                      style={{
+                        left: (nearbyNPC.x - camera.x) + nearbyNPC.width / 2 - 30,
+                        top: (nearbyNPC.y - camera.y) - 45,
+                        width: 60,
+                        height: 40,
+                        zIndex: 20
+                      }}
+                      onClick={isMobile ? () => {
+                        const partySize = party.length - 1;
+                        if (partySize >= 5) {
+                          setNpcDialogue("Perfect! Now that you have 5 friends in your party, we can TAKEDOWN our enemy! The time has come to face our greatest challenge!");
+                        } else {
+                          setNpcDialogue(`Greetings, Zoe! You currently have ${partySize} recruited friends. When you have 5 friends in your party, we can TAKEDOWN our enemy! Keep battling creatures to recruit more allies.`);
+                        }
+                        setShowNPCDialogue(true);
+                      } : undefined}
+                    >
+                      <div className={`bg-green-500 text-white border-2 border-green-600 rounded px-2 py-1 text-sm font-bold text-center animate-bounce shadow-lg ${
+                        isMobile ? 'min-h-[30px] min-w-[50px] flex items-center justify-center touch-manipulation' : ''
+                      }`}>
+                        {isMobile ? 'TAP' : 'TALK'}
                       </div>
                     </div>
                   )}
@@ -774,43 +1305,117 @@
 
                 {/* Party creatures display */}
                 {party.length > 0 && (
-                  <div className="absolute top-2 left-2 bg-white bg-opacity-80 p-2 rounded">
-                    <div className="text-sm font-bold text-green-800">Your Party:</div>
-                    <div className="flex gap-1">
+                  <div className="absolute top-2 left-2 bg-white bg-opacity-90 p-2 sm:p-3 rounded-lg text-xs sm:text-sm shadow-lg">
+                    <div className="font-bold text-green-800 mb-2">Zoe's Party:</div>
+                    <div className="flex flex-col gap-2">
                       {party.map(creature => (
-                        <span key={creature.id} className="text-2xl">{creature.emoji}</span>
+                        <div key={creature.id} className="flex items-center gap-2">
+                          {creature.isSidekick ? (
+                            <>
+                              <img
+                                src="public/art/sidekickfront.png"
+                                alt="Derpy"
+                                className="w-6 h-6 sm:w-8 sm:h-8 object-contain"
+                                style={{ imageRendering: 'pixelated' }}
+                              />
+                              <span className="text-xs sm:text-sm font-medium text-green-700">Derpy</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="text-lg sm:text-xl">{creature.emoji}</span>
+                              <span className="text-xs sm:text-sm text-green-700">Creature</span>
+                            </>
+                          )}
+                        </div>
                       ))}
                     </div>
                   </div>
                 )}
+
+                {/* Virtual Joystick for Mobile */}
+                {isMobile && touchControls.isActive && (
+                  <>
+                    {/* Joystick Base */}
+                    <div 
+                      className="absolute w-16 h-16 bg-white bg-opacity-30 border-2 border-white rounded-full pointer-events-none"
+                      style={{
+                        left: touchControls.startX - 32,
+                        top: touchControls.startY - 32
+                      }}
+                    />
+                    {/* Joystick Knob */}
+                    <div 
+                      className="absolute w-6 h-6 bg-white bg-opacity-80 rounded-full pointer-events-none"
+                      style={{
+                        left: touchControls.startX + touchControls.moveX * 25 - 12,
+                        top: touchControls.startY + touchControls.moveY * 25 - 12
+                      }}
+                    />
+                  </>
+                )}
+                </div>
               </div>
+
+              {/* NPC Dialogue Modal */}
+              {showNPCDialogue && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white p-4 sm:p-6 rounded-xl border-4 border-green-600 max-w-sm sm:max-w-md w-full shadow-2xl">
+                    <div className="text-center">
+                      <div className="mb-4">
+                        <img 
+                          src="public/art/NPC_Mira.png" 
+                          alt="Mira" 
+                          className="w-16 h-16 mx-auto object-contain"
+                          style={{ imageRendering: 'pixelated' }}
+                        />
+                      </div>
+                      <h3 className="text-lg sm:text-xl font-bold text-green-800 mb-4">Mira</h3>
+                      <p className="text-sm sm:text-base text-gray-700 mb-6 leading-relaxed">
+                        {npcDialogue}
+                      </p>
+                      <button
+                        onClick={() => setShowNPCDialogue(false)}
+                        className="bg-green-500 hover:bg-green-600 active:bg-green-700 text-white px-6 py-3 rounded-lg transition-colors touch-manipulation text-base min-h-[50px]"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Modal Overlay for Battle States */}
               {(gameState === 'battling' || gameState === 'countdown' || gameState === 'revealing' || battleResult) && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                  <div className="bg-white p-8 rounded-xl border-4 border-green-600 max-w-md w-full mx-4 shadow-2xl">
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white p-4 sm:p-8 rounded-xl border-4 border-green-600 max-w-sm sm:max-w-md w-full shadow-2xl max-h-[80vh] overflow-y-auto">
                     
                     {/* Battle Interface */}
                     {gameState === 'battling' && (
                       <>
-                        <div className="text-center mb-6">
-                          <h2 className="text-3xl font-bold text-green-800 mb-2">
+                        <div className="text-center mb-4 sm:mb-6">
+                          <h2 className="text-2xl sm:text-3xl font-bold text-green-800 mb-2">
                             Challenge {selectedCreature?.emoji}!
                           </h2>
-                          <p className="text-green-700 text-lg">Choose your move:</p>
+                          {!battleOptionsReady ? (
+                            <p className="text-green-700 text-base sm:text-lg">Get ready...</p>
+                          ) : (
+                            <p className="text-green-700 text-base sm:text-lg">Choose your move:</p>
+                          )}
                         </div>
-                        <div className="flex flex-col gap-3">
-                          {Object.entries(MOVES).map(([key, emoji]) => (
-                            <button
-                              key={key}
-                              onClick={() => handlePlayerMove(key)}
-                              className="bg-green-500 hover:bg-green-600 text-white px-6 py-4 rounded-lg text-2xl transition-colors flex items-center justify-center gap-3 hover:scale-105 transform"
-                            >
-                              <span className="text-3xl">{emoji}</span>
-                              <span className="text-xl">{MOVE_NAMES[key]}</span>
-                            </button>
-                          ))}
-                        </div>
+                        {battleOptionsReady && (
+                          <div className="flex flex-col gap-3">
+                            {Object.entries(MOVES).map(([key, emoji]) => (
+                              <button
+                                key={key}
+                                onClick={() => handlePlayerMove(key)}
+                                className="bg-green-500 hover:bg-green-600 active:bg-green-700 text-white px-4 sm:px-6 py-4 sm:py-4 rounded-lg text-xl sm:text-2xl transition-colors flex items-center justify-center gap-3 hover:scale-105 transform touch-manipulation min-h-[60px] sm:min-h-[70px]"
+                              >
+                                <span className="text-2xl sm:text-3xl">{emoji}</span>
+                                <span className="text-lg sm:text-xl">{MOVE_NAMES[key]}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </>
                     )}
 
@@ -879,27 +1484,35 @@
                 </div>
               )}
 
-              {/* Reset Button */}
+              {/* Reset Button - Mobile Friendly */}
               <div className="mt-4 text-center">
                 <button
                   onClick={resetGame}
-                  className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded transition-colors"
+                  className="bg-red-500 hover:bg-red-600 active:bg-red-700 text-white px-6 py-3 rounded-lg transition-colors touch-manipulation text-lg min-h-[50px]"
                 >
                   Reset Game
                 </button>
               </div>
 
-              {/* Instructions */}
-              <div className="mt-4 bg-white p-4 rounded-lg border border-green-600">
-                <h3 className="font-bold text-green-800 mb-2">How to Play:</h3>
-                <ul className="text-sm text-green-700 space-y-1">
-                  <li>• Move your farmer (🧑‍🌾) with WASD or arrow keys</li>
-                  <li>• Get close to creatures and press SPACE to challenge them</li>
-                  <li>• Win 3 battles against a creature to recruit it to your party</li>
+              {/* Instructions - Mobile Responsive */}
+              <div className="mt-4 bg-white p-3 sm:p-4 rounded-lg border border-green-600 mx-2 sm:mx-0">
+                <h3 className="font-bold text-green-800 mb-2 text-sm sm:text-base">How to Play:</h3>
+                <ul className="text-xs sm:text-sm text-green-700 space-y-1">
+                  {isMobile ? (
+                    <>
+                      <li>• Touch and drag anywhere on screen to move Zoe</li>
+                      <li>• Tap directly on any creature to challenge them to battle</li>
+                      <li>• Win 3 battles against a creature to recruit it</li>
+                    </>
+                  ) : (
+                    <>
+                      <li>• Move Zoe with WASD or arrow keys</li>
+                      <li>• Get close to creatures and press SPACE to challenge them</li>
+                      <li>• Win 3 battles against a creature to recruit it to your party</li>
+                    </>
+                  )}
                   <li>• Recruited creatures will follow you around</li>
-                  <li>• 🍍 Pineapple beats 🔪 Knife (cuts it up)</li>
-                  <li>• 🔪 Knife beats 🍑 Bum (ouch!)</li>
-                  <li>• 🍑 Bum beats 🍍 Pineapple (sits on it)</li>
+                  <li>• 🍍→🍑 🍑→🔪 🔪→🍍</li>
                 </ul>
               </div>
             </div>
