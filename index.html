@@ -185,6 +185,10 @@
             dy: (Math.random() - 0.5) * MOVE_SPEED * 2,
             wins: 0,
             inParty: false,
+            level: 0, // Level 0 when wild, becomes 1 when recruited
+            experience: 0,
+            maxHp: 0, // Will be set when recruited
+            currentHp: 0,
             // Animation state
             bounceOffset: 0,
             bouncePhase: Math.random() * Math.PI * 2,
@@ -210,6 +214,10 @@
             dy: 0,
             wins: 0,
             inParty: true,
+            level: 1, // Derpy starts at level 1
+            experience: 0,
+            maxHp: 20, // Base HP for level 1
+            currentHp: 20,
             // Animation state
             bounceOffset: 0,
             bouncePhase: 0,
@@ -514,6 +522,8 @@
           const [currentNPC, setCurrentNPC] = useState(null);
           const [activeFollower, setActiveFollower] = useState(null); // Which party member follows the player
           const [showPartySelectModal, setShowPartySelectModal] = useState(false);
+          const [showVillainBattleSelect, setShowVillainBattleSelect] = useState(false);
+          const [villainBattleCreature, setVillainBattleCreature] = useState(null);
           const [battleOptionsReady, setBattleOptionsReady] = useState(false);
           const [showBuildingModal, setShowBuildingModal] = useState(false);
           const [selectedBuilding, setSelectedBuilding] = useState(null);
@@ -528,7 +538,42 @@
             moveY: 0
           });
           const [isMobile, setIsMobile] = useState(false);
+          const [showLevelUpModal, setShowLevelUpModal] = useState(false);
+          const [levelUpCreature, setLevelUpCreature] = useState(null);
           const animationRef = useRef();
+
+          // Level up system
+          const handleLevelUp = (creatureId) => {
+            setCreatures(prev => prev.map(creature => {
+              if (creature.id === creatureId && creature.level < 5) {
+                const newLevel = creature.level + 1;
+                const newMaxHp = 20 + (newLevel - 1) * 10; // HP increases by 10 per level
+                return {
+                  ...creature,
+                  level: newLevel,
+                  maxHp: newMaxHp,
+                  currentHp: newMaxHp, // Full heal on level up
+                  experience: 0
+                };
+              }
+              return creature;
+            }));
+
+            setParty(prev => prev.map(creature => {
+              if (creature.id === creatureId && creature.level < 5) {
+                const newLevel = creature.level + 1;
+                const newMaxHp = 20 + (newLevel - 1) * 10;
+                return {
+                  ...creature,
+                  level: newLevel,
+                  maxHp: newMaxHp,
+                  currentHp: newMaxHp,
+                  experience: 0
+                };
+              }
+              return creature;
+            }));
+          };
 
           // Particle system
           const createParticles = (x, y, type, count = 10) => {
@@ -584,7 +629,15 @@
                   setCurrentNPC(nearbyNPC);
                   if (nearbyNPC.id === 'npc-villain') {
                     // Villain dialogue
-                    setNpcDialogue("When you have 5 friends in your party you can battle me.");
+                    if (partySize >= 1) {
+                      setNpcDialogue("You have proven yourself worthy! Choose your champion to battle me!");
+                      setTimeout(() => {
+                        setShowNPCDialogue(false);
+                        setShowVillainBattleSelect(true);
+                      }, 2000);
+                    } else {
+                      setNpcDialogue("When you have 1 friend in your party you can battle me.");
+                    }
                   } else {
                     // Mira's dialogue
                     if (partySize >= 5) {
@@ -1052,8 +1105,14 @@
                     // Creature joins party
                     setTimeout(() => playSound('recruit'), 800);
                     setTimeout(() => createParticles(selectedCreature.x + CREATURE_SIZE/2, selectedCreature.y + CREATURE_SIZE/2, 'celebration', 15), 800);
-                    setCreatures(prev => prev.map(c => 
-                      c.id === selectedCreature.id ? { ...c, inParty: true } : c
+                    setCreatures(prev => prev.map(c =>
+                      c.id === selectedCreature.id ? {
+                        ...c,
+                        inParty: true,
+                        level: 1,
+                        maxHp: 20,
+                        currentHp: 20
+                      } : c
                     ));
                     setParty(prev => [...prev, selectedCreature]);
                     setTimeout(() => {
@@ -1234,7 +1293,15 @@
                             const partySize = party.length - 1;
                             setCurrentNPC(element);
                             if (element.id === 'npc-villain') {
-                              setNpcDialogue("When you have 5 friends in your party you can battle me.");
+                              if (partySize >= 1) {
+                                setNpcDialogue("You have proven yourself worthy! Choose your champion to battle me!");
+                                setTimeout(() => {
+                                  setShowNPCDialogue(false);
+                                  setShowVillainBattleSelect(true);
+                                }, 2000);
+                              } else {
+                                setNpcDialogue("When you have 1 friend in your party you can battle me.");
+                              }
                             } else {
                               if (partySize >= 5) {
                                 setNpcDialogue("Perfect! Now that you have 5 friends in your party, we can TAKEDOWN our enemy! The time has come to face our greatest challenge!");
@@ -1250,7 +1317,15 @@
                             const partySize = party.length - 1;
                             setCurrentNPC(element);
                             if (element.id === 'npc-villain') {
-                              setNpcDialogue("When you have 5 friends in your party you can battle me.");
+                              if (partySize >= 1) {
+                                setNpcDialogue("You have proven yourself worthy! Choose your champion to battle me!");
+                                setTimeout(() => {
+                                  setShowNPCDialogue(false);
+                                  setShowVillainBattleSelect(true);
+                                }, 2000);
+                              } else {
+                                setNpcDialogue("When you have 1 friend in your party you can battle me.");
+                              }
                             } else {
                               if (partySize >= 5) {
                                 setNpcDialogue("Perfect! Now that you have 5 friends in your party, we can TAKEDOWN our enemy! The time has come to face our greatest challenge!");
@@ -1463,7 +1538,15 @@
                         const partySize = party.length - 1;
                         setCurrentNPC(nearbyNPC);
                         if (nearbyNPC.id === 'npc-villain') {
-                          setNpcDialogue("When you have 5 friends in your party you can battle me.");
+                          if (partySize >= 5) {
+                            setNpcDialogue("You have proven yourself worthy! Choose your champion to battle me!");
+                            setTimeout(() => {
+                              setShowNPCDialogue(false);
+                              setShowVillainBattleSelect(true);
+                            }, 2000);
+                          } else {
+                            setNpcDialogue("When you have 5 friends in your party you can battle me.");
+                          }
                         } else {
                           if (partySize >= 5) {
                             setNpcDialogue("Perfect! Now that you have 5 friends in your party, we can TAKEDOWN our enemy! The time has come to face our greatest challenge!");
@@ -1519,7 +1602,21 @@
                                 className="w-6 h-6 sm:w-8 sm:h-8 object-contain"
                                 style={{ imageRendering: 'pixelated' }}
                               />
-                              <span className="text-xs sm:text-sm font-medium text-green-700">Derpy</span>
+                              <div className="flex flex-col">
+                                <span className="text-xs sm:text-sm font-medium text-green-700">Derpy</span>
+                                <span className="text-xs text-gray-500">Lv.{creature.level || 1} HP:{creature.currentHp || creature.maxHp || 20}/{creature.maxHp || 20}</span>
+                              </div>
+                              {creature.level < 5 && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleLevelUp(creature.id);
+                                  }}
+                                  className="ml-auto text-xs bg-blue-500 text-white px-1 py-0.5 rounded hover:bg-blue-600"
+                                >
+                                  +
+                                </button>
+                              )}
                             </>
                           ) : (
                             <>
@@ -1533,7 +1630,21 @@
                                   style={{ imageRendering: 'pixelated' }}
                                 />
                               )}
-                              <span className="text-xs sm:text-sm text-green-700">{creature.name}</span>
+                              <div className="flex flex-col">
+                                <span className="text-xs sm:text-sm text-green-700">{creature.name}</span>
+                                <span className="text-xs text-gray-500">Lv.{creature.level || 1} HP:{creature.currentHp || creature.maxHp || 20}/{creature.maxHp || 20}</span>
+                              </div>
+                              {creature.level < 5 && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleLevelUp(creature.id);
+                                  }}
+                                  className="ml-auto text-xs bg-blue-500 text-white px-1 py-0.5 rounded hover:bg-blue-600"
+                                >
+                                  +
+                                </button>
+                              )}
                             </>
                           )}
                         </div>
@@ -1675,13 +1786,28 @@
                     {gameState === 'battling' && (
                       <>
                         <div className="text-center mb-4 sm:mb-6">
-                          <h2 className="text-2xl sm:text-3xl font-bold text-green-800 mb-2">
-                            Challenge {selectedCreature?.name}!
-                          </h2>
-                          {!battleOptionsReady ? (
-                            <p className="text-green-700 text-base sm:text-lg">Get ready...</p>
+                          {villainBattleCreature ? (
+                            <>
+                              <h2 className="text-2xl sm:text-3xl font-bold text-red-800 mb-2">
+                                🧛‍♀️ {villainBattleCreature.isSidekick ? 'Derpy' : villainBattleCreature.name} vs Vampire Lana!
+                              </h2>
+                              {!battleOptionsReady ? (
+                                <p className="text-red-700 text-base sm:text-lg">Prepare for the final battle...</p>
+                              ) : (
+                                <p className="text-red-700 text-base sm:text-lg">Choose your attack:</p>
+                              )}
+                            </>
                           ) : (
-                            <p className="text-green-700 text-base sm:text-lg">Choose your move:</p>
+                            <>
+                              <h2 className="text-2xl sm:text-3xl font-bold text-green-800 mb-2">
+                                Challenge {selectedCreature?.name}!
+                              </h2>
+                              {!battleOptionsReady ? (
+                                <p className="text-green-700 text-base sm:text-lg">Get ready...</p>
+                              ) : (
+                                <p className="text-green-700 text-base sm:text-lg">Choose your move:</p>
+                              )}
+                            </>
                           )}
                         </div>
                         {battleOptionsReady && (
@@ -1833,6 +1959,74 @@
                       </div>
                       <button
                         onClick={() => setShowPartySelectModal(false)}
+                        className="bg-gray-500 hover:bg-gray-600 active:bg-gray-700 text-white px-6 py-3 rounded-lg transition-colors touch-manipulation text-base min-h-[50px]"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Villain Battle Creature Selection Modal */}
+              {showVillainBattleSelect && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white p-4 sm:p-6 rounded-xl border-4 border-red-600 max-w-sm sm:max-w-md w-full shadow-2xl">
+                    <div className="text-center">
+                      <h3 className="text-xl sm:text-2xl font-bold text-red-800 mb-4">⚔️ Choose Your Champion</h3>
+                      <p className="text-gray-700 mb-6 text-sm sm:text-base">
+                        Select which party member will face Vampire Lana in battle:
+                      </p>
+                      <div className="flex flex-col gap-3 mb-6">
+                        {party.map(creature => (
+                          <button
+                            key={creature.id}
+                            onClick={() => {
+                              setVillainBattleCreature(creature);
+                              setShowVillainBattleSelect(false);
+                              // Start villain battle logic here
+                              setSelectedCreature(creature);
+                              setGameState('battling');
+                            }}
+                            className="flex items-center gap-3 p-3 rounded-lg border-2 border-gray-300 bg-gray-50 hover:bg-red-50 hover:border-red-300 transition-all touch-manipulation"
+                          >
+                            {creature.isSidekick ? (
+                              <>
+                                <img
+                                  src="public/art/sidekickfront.png"
+                                  alt="Derpy"
+                                  className="w-10 h-10 object-contain"
+                                  style={{ imageRendering: 'pixelated' }}
+                                />
+                                <div className="flex flex-col text-left">
+                                  <span className="text-sm sm:text-base font-medium text-gray-700">Derpy</span>
+                                  <span className="text-xs text-gray-500">Lv.{creature.level || 1} HP:{creature.currentHp || creature.maxHp || 20}/{creature.maxHp || 20}</span>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                {creature.rarity === 'rare' && typeof creature.src === 'string' && creature.src.includes('🦄') ? (
+                                  <span className="text-3xl">{creature.src}</span>
+                                ) : (
+                                  <img
+                                    src={creature.src}
+                                    alt={creature.name}
+                                    className="w-10 h-10 object-contain"
+                                    style={{ imageRendering: 'pixelated' }}
+                                  />
+                                )}
+                                <div className="flex flex-col text-left">
+                                  <span className="text-sm sm:text-base text-gray-700">{creature.name}</span>
+                                  <span className="text-xs text-gray-500">Lv.{creature.level || 1} HP:{creature.currentHp || creature.maxHp || 20}/{creature.maxHp || 20}</span>
+                                </div>
+                              </>
+                            )}
+                            <span className="ml-auto text-red-500 text-sm">⚔️ Battle</span>
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => setShowVillainBattleSelect(false)}
                         className="bg-gray-500 hover:bg-gray-600 active:bg-gray-700 text-white px-6 py-3 rounded-lg transition-colors touch-manipulation text-base min-h-[50px]"
                       >
                         Cancel
