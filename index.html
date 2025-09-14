@@ -133,6 +133,42 @@
           BUM: 'Bum'
         };
 
+        // RPG Move System
+        const MOVES_LIST = {
+          // Basic moves (level 1)
+          tackle: { name: 'Tackle', damage: 15, type: 'physical', description: 'A basic physical attack' },
+          scratch: { name: 'Scratch', damage: 12, type: 'physical', description: 'Quick claw attack' },
+          bite: { name: 'Bite', damage: 18, type: 'physical', description: 'Sharp teeth attack' },
+
+          // Advanced moves (higher levels)
+          fireball: { name: 'Fireball', damage: 25, type: 'magical', description: 'Fiery magical attack' },
+          heal: { name: 'Heal', damage: -20, type: 'healing', description: 'Restores HP' },
+          lightning: { name: 'Lightning', damage: 30, type: 'magical', description: 'Electric shock attack' },
+          slam: { name: 'Slam', damage: 35, type: 'physical', description: 'Powerful body slam' },
+
+          // Ultimate moves (level 5)
+          meteor: { name: 'Meteor', damage: 45, type: 'ultimate', description: 'Devastating meteor strike' },
+          blessing: { name: 'Blessing', damage: -35, type: 'healing', description: 'Powerful healing spell' }
+        };
+
+        // Move sets by creature type and level
+        const getCreatureMoves = (creature) => {
+          const baseMoves = ['tackle', 'scratch'];
+          let availableMoves = [...baseMoves];
+
+          if (creature.level >= 2) availableMoves.push('bite');
+          if (creature.level >= 3) availableMoves.push('fireball', 'heal');
+          if (creature.level >= 4) availableMoves.push('lightning', 'slam');
+          if (creature.level >= 5) availableMoves.push('meteor', 'blessing');
+
+          return availableMoves.slice(0, 4); // Max 4 moves
+        };
+
+        // Calculate XP needed for next level
+        const getXpForLevel = (level) => {
+          return level * 100; // 100, 200, 300, 400, 500 XP per level
+        };
+
         const getWinner = (playerMove, creatureMove) => {
           if (playerMove === creatureMove) return 'tie';
           if (
@@ -189,6 +225,8 @@
             experience: 0,
             maxHp: 0, // Will be set when recruited
             currentHp: 0,
+            moves: [], // Will be set when recruited
+            isFainted: false,
             // Animation state
             bounceOffset: 0,
             bouncePhase: Math.random() * Math.PI * 2,
@@ -218,6 +256,8 @@
             experience: 0,
             maxHp: 20, // Base HP for level 1
             currentHp: 20,
+            moves: ['tackle', 'scratch'],
+            isFainted: false,
             // Animation state
             bounceOffset: 0,
             bouncePhase: 0,
@@ -524,6 +564,13 @@
           const [showPartySelectModal, setShowPartySelectModal] = useState(false);
           const [showVillainBattleSelect, setShowVillainBattleSelect] = useState(false);
           const [villainBattleCreature, setVillainBattleCreature] = useState(null);
+          const [isRpgBattle, setIsRpgBattle] = useState(false);
+          const [rpgBattleState, setRpgBattleState] = useState('select'); // 'select', 'animation', 'result'
+          const [currentTurn, setCurrentTurn] = useState('player'); // 'player' or 'villain'
+          const [villainHp, setVillainHp] = useState(100);
+          const [maxVillainHp] = useState(100);
+          const [battleLog, setBattleLog] = useState([]);
+          const [selectedMove, setSelectedMove] = useState(null);
           const [battleOptionsReady, setBattleOptionsReady] = useState(false);
           const [showBuildingModal, setShowBuildingModal] = useState(false);
           const [selectedBuilding, setSelectedBuilding] = useState(null);
@@ -542,18 +589,208 @@
           const [levelUpCreature, setLevelUpCreature] = useState(null);
           const animationRef = useRef();
 
+          // RPG Battle System
+          const handleRpgMove = (moveId) => {
+            if (currentTurn !== 'player' || rpgBattleState !== 'select') return;
+
+            const move = MOVES_LIST[moveId];
+            // Get the latest creature data from party
+            const creature = party.find(p => p.id === villainBattleCreature.id) || villainBattleCreature;
+
+            setSelectedMove(moveId);
+            setRpgBattleState('animation');
+
+            let damage = move.damage;
+            let newLog = [...battleLog];
+
+            if (move.type === 'healing') {
+              // Healing move
+              const healAmount = Math.abs(damage);
+              const newHp = Math.min(creature.currentHp + healAmount, creature.maxHp);
+              const actualHeal = newHp - creature.currentHp;
+
+              // Update creature HP
+              const updatedCreature = { ...creature, currentHp: newHp };
+              setCreatures(prev => prev.map(c =>
+                c.id === creature.id ? updatedCreature : c
+              ));
+              setParty(prev => prev.map(c =>
+                c.id === creature.id ? updatedCreature : c
+              ));
+              setVillainBattleCreature(updatedCreature);
+
+              newLog.push(`${creature.isSidekick ? 'Derpy' : creature.name} used ${move.name}! Restored ${actualHeal} HP!`);
+            } else {
+              // Attack move
+              const actualDamage = Math.floor(damage * (0.8 + Math.random() * 0.4)); // 80-120% damage
+              const newVillainHp = Math.max(0, villainHp - actualDamage);
+              setVillainHp(newVillainHp);
+
+              newLog.push(`${creature.isSidekick ? 'Derpy' : creature.name} used ${move.name}! Dealt ${actualDamage} damage!`);
+
+              if (newVillainHp <= 0) {
+                newLog.push('Vampire Lana has been defeated!');
+                setBattleLog(newLog);
+                setTimeout(() => handleRpgBattleWin(), 2000);
+                return;
+              }
+            }
+
+            setBattleLog(newLog);
+            setCurrentTurn('villain');
+
+            // Villain's turn after delay
+            setTimeout(() => handleVillainTurn(newLog), 2000);
+          };
+
+          const handleVillainTurn = (currentLog) => {
+            const villainMoves = ['dark_blast', 'vampire_bite', 'shadow_strike'];
+            const randomMove = villainMoves[Math.floor(Math.random() * villainMoves.length)];
+
+            let damage, moveName;
+            switch (randomMove) {
+              case 'dark_blast': damage = 20; moveName = 'Dark Blast'; break;
+              case 'vampire_bite': damage = 25; moveName = 'Vampire Bite'; break;
+              case 'shadow_strike': damage = 30; moveName = 'Shadow Strike'; break;
+            }
+
+            const actualDamage = Math.floor(damage * (0.8 + Math.random() * 0.4));
+            // Get the latest creature data
+            const creature = party.find(p => p.id === villainBattleCreature.id) || villainBattleCreature;
+            const newHp = Math.max(0, creature.currentHp - actualDamage);
+
+            // Update creature HP
+            const updatedCreature = { ...creature, currentHp: newHp };
+            setCreatures(prev => prev.map(c =>
+              c.id === creature.id ? updatedCreature : c
+            ));
+            setParty(prev => prev.map(c =>
+              c.id === creature.id ? updatedCreature : c
+            ));
+            setVillainBattleCreature(updatedCreature);
+
+            const newLog = [...currentLog, `Vampire Lana used ${moveName}! Dealt ${actualDamage} damage!`];
+
+            if (newHp <= 0) {
+              newLog.push(`${creature.isSidekick ? 'Derpy' : creature.name} has fainted!`);
+              setBattleLog(newLog);
+              setTimeout(() => handleRpgBattleLoss(), 2000);
+              return;
+            }
+
+            setBattleLog(newLog);
+            setCurrentTurn('player');
+            setRpgBattleState('select');
+          };
+
+          const handleRpgBattleWin = () => {
+            // Give XP and potentially level up
+            const creature = villainBattleCreature;
+            const xpGained = 150; // Big XP reward for beating villain
+            const newXp = creature.experience + xpGained;
+            const currentLevel = creature.level;
+            let newLevel = currentLevel;
+            let remainingXp = newXp;
+
+            // Check for level ups
+            while (newLevel < 5 && remainingXp >= getXpForLevel(newLevel + 1)) {
+              remainingXp -= getXpForLevel(newLevel + 1);
+              newLevel++;
+            }
+
+            const leveledUp = newLevel > currentLevel;
+            const newMaxHp = 20 + (newLevel - 1) * 10;
+            const newMoves = getCreatureMoves({ ...creature, level: newLevel });
+
+            // Update creature
+            setCreatures(prev => prev.map(c =>
+              c.id === creature.id ? {
+                ...c,
+                experience: remainingXp,
+                level: newLevel,
+                maxHp: newMaxHp,
+                currentHp: leveledUp ? newMaxHp : c.currentHp, // Full heal if leveled up
+                moves: newMoves
+              } : c
+            ));
+            setParty(prev => prev.map(c =>
+              c.id === creature.id ? {
+                ...c,
+                experience: remainingXp,
+                level: newLevel,
+                maxHp: newMaxHp,
+                currentHp: leveledUp ? newMaxHp : c.currentHp,
+                moves: newMoves
+              } : c
+            ));
+
+            // Don't set battleResult or gameState for RPG battles - they have their own result handling
+            setIsRpgBattle(false);
+            setVillainBattleCreature(null);
+            setGameState('exploring'); // Return to exploring state
+
+            if (leveledUp) {
+              createParticles(400, 300, 'celebration', 20);
+            }
+          };
+
+          const handleRpgBattleLoss = () => {
+            const creature = villainBattleCreature;
+
+            // Mark creature as fainted
+            setCreatures(prev => prev.map(c =>
+              c.id === creature.id ? { ...c, isFainted: true, currentHp: 0 } : c
+            ));
+            setParty(prev => prev.map(c =>
+              c.id === creature.id ? { ...c, isFainted: true, currentHp: 0 } : c
+            ));
+
+            // Don't set battleResult or gameState for RPG battles - they have their own result handling
+            setIsRpgBattle(false);
+            setVillainBattleCreature(null);
+            setGameState('exploring'); // Return to exploring state
+          };
+
+          // Fountain healing system
+          const handleFountainClick = () => {
+            // Heal all party members to full HP and cure fainted status
+            setParty(prev => prev.map(creature => ({
+              ...creature,
+              currentHp: creature.maxHp || (20 + ((creature.level || 1) - 1) * 10),
+              isFainted: false
+            })));
+
+            setCreatures(prev => prev.map(creature => {
+              if (creature.inParty) {
+                return {
+                  ...creature,
+                  currentHp: creature.maxHp || (20 + ((creature.level || 1) - 1) * 10),
+                  isFainted: false
+                };
+              }
+              return creature;
+            }));
+
+            // Play healing sound and show particle effect
+            playSound('healing');
+            createParticles(player.x, player.y, 'healing', 15);
+          };
+
           // Level up system
           const handleLevelUp = (creatureId) => {
             setCreatures(prev => prev.map(creature => {
               if (creature.id === creatureId && creature.level < 5) {
                 const newLevel = creature.level + 1;
                 const newMaxHp = 20 + (newLevel - 1) * 10; // HP increases by 10 per level
+                const newMoves = getCreatureMoves({ ...creature, level: newLevel });
                 return {
                   ...creature,
                   level: newLevel,
                   maxHp: newMaxHp,
                   currentHp: newMaxHp, // Full heal on level up
-                  experience: 0
+                  experience: 0,
+                  moves: newMoves,
+                  isFainted: false // Revive if fainted
                 };
               }
               return creature;
@@ -563,12 +800,15 @@
               if (creature.id === creatureId && creature.level < 5) {
                 const newLevel = creature.level + 1;
                 const newMaxHp = 20 + (newLevel - 1) * 10;
+                const newMoves = getCreatureMoves({ ...creature, level: newLevel });
                 return {
                   ...creature,
                   level: newLevel,
                   maxHp: newMaxHp,
                   currentHp: newMaxHp,
-                  experience: 0
+                  experience: 0,
+                  moves: newMoves,
+                  isFainted: false
                 };
               }
               return creature;
@@ -629,14 +869,14 @@
                   setCurrentNPC(nearbyNPC);
                   if (nearbyNPC.id === 'npc-villain') {
                     // Villain dialogue
-                    if (partySize >= 1) {
+                    if (partySize >= 0) {
                       setNpcDialogue("You have proven yourself worthy! Choose your champion to battle me!");
                       setTimeout(() => {
                         setShowNPCDialogue(false);
                         setShowVillainBattleSelect(true);
                       }, 2000);
                     } else {
-                      setNpcDialogue("When you have 1 friend in your party you can battle me.");
+                      setNpcDialogue("When you have Derpy ready you can battle me.");
                     }
                   } else {
                     // Mira's dialogue
@@ -1111,7 +1351,9 @@
                         inParty: true,
                         level: 1,
                         maxHp: 20,
-                        currentHp: 20
+                        currentHp: 20,
+                        moves: ['tackle', 'scratch'],
+                        isFainted: false
                       } : c
                     ));
                     setParty(prev => [...prev, selectedCreature]);
@@ -1156,6 +1398,12 @@
             setParty([sidekick]);
             setActiveFollower(sidekick); // Reset Derpy as the default follower
             setCreatureWins({});
+            setIsRpgBattle(false);
+            setVillainBattleCreature(null);
+            setRpgBattleState('select');
+            setCurrentTurn('player');
+            setVillainHp(100);
+            setBattleLog([]);
             setGameState('exploring');
             setSelectedCreature(null);
             setBattleResult(null);
@@ -1293,14 +1541,14 @@
                             const partySize = party.length - 1;
                             setCurrentNPC(element);
                             if (element.id === 'npc-villain') {
-                              if (partySize >= 1) {
+                              if (partySize >= 0) {
                                 setNpcDialogue("You have proven yourself worthy! Choose your champion to battle me!");
                                 setTimeout(() => {
                                   setShowNPCDialogue(false);
                                   setShowVillainBattleSelect(true);
                                 }, 2000);
                               } else {
-                                setNpcDialogue("When you have 1 friend in your party you can battle me.");
+                                setNpcDialogue("When you have Derpy ready you can battle me.");
                               }
                             } else {
                               if (partySize >= 5) {
@@ -1317,14 +1565,14 @@
                             const partySize = party.length - 1;
                             setCurrentNPC(element);
                             if (element.id === 'npc-villain') {
-                              if (partySize >= 1) {
+                              if (partySize >= 0) {
                                 setNpcDialogue("You have proven yourself worthy! Choose your champion to battle me!");
                                 setTimeout(() => {
                                   setShowNPCDialogue(false);
                                   setShowVillainBattleSelect(true);
                                 }, 2000);
                               } else {
-                                setNpcDialogue("When you have 1 friend in your party you can battle me.");
+                                setNpcDialogue("When you have Derpy ready you can battle me.");
                               }
                             } else {
                               if (partySize >= 5) {
@@ -1349,7 +1597,8 @@
                         <div
                           className={`${
                             ['🌳', '🌲', '⛲'].includes(element.emoji) ? 'text-8xl' : 'text-4xl'
-                          }`}
+                          } ${element.emoji === '⛲' ? 'cursor-pointer hover:scale-110 transition-transform touch-manipulation' : ''}`}
+                          onClick={element.emoji === '⛲' ? handleFountainClick : undefined}
                         >
                           {element.emoji}
                         </div>
@@ -1545,7 +1794,7 @@
                               setShowVillainBattleSelect(true);
                             }, 2000);
                           } else {
-                            setNpcDialogue("When you have 5 friends in your party you can battle me.");
+                            setNpcDialogue("When you have Derpy ready you can battle me.");
                           }
                         } else {
                           if (partySize >= 5) {
@@ -1604,19 +1853,11 @@
                               />
                               <div className="flex flex-col">
                                 <span className="text-xs sm:text-sm font-medium text-green-700">Derpy</span>
-                                <span className="text-xs text-gray-500">Lv.{creature.level || 1} HP:{creature.currentHp || creature.maxHp || 20}/{creature.maxHp || 20}</span>
+                                <span className={`text-xs ${creature.isFainted ? 'text-red-500' : 'text-gray-500'}`}>
+                                  Lv.{creature.level || 1} HP:{creature.currentHp || creature.maxHp || 20}/{creature.maxHp || 20}
+                                  {creature.isFainted && ' (FAINTED)'}
+                                </span>
                               </div>
-                              {creature.level < 5 && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleLevelUp(creature.id);
-                                  }}
-                                  className="ml-auto text-xs bg-blue-500 text-white px-1 py-0.5 rounded hover:bg-blue-600"
-                                >
-                                  +
-                                </button>
-                              )}
                             </>
                           ) : (
                             <>
@@ -1632,19 +1873,11 @@
                               )}
                               <div className="flex flex-col">
                                 <span className="text-xs sm:text-sm text-green-700">{creature.name}</span>
-                                <span className="text-xs text-gray-500">Lv.{creature.level || 1} HP:{creature.currentHp || creature.maxHp || 20}/{creature.maxHp || 20}</span>
+                                <span className={`text-xs ${creature.isFainted ? 'text-red-500' : 'text-gray-500'}`}>
+                                  Lv.{creature.level || 1} HP:{creature.currentHp || creature.maxHp || 20}/{creature.maxHp || 20}
+                                  {creature.isFainted && ' (FAINTED)'}
+                                </span>
                               </div>
-                              {creature.level < 5 && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleLevelUp(creature.id);
-                                  }}
-                                  className="ml-auto text-xs bg-blue-500 text-white px-1 py-0.5 rounded hover:bg-blue-600"
-                                >
-                                  +
-                                </button>
-                              )}
                             </>
                           )}
                         </div>
@@ -1785,32 +2018,139 @@
                     {/* Battle Interface */}
                     {gameState === 'battling' && (
                       <>
-                        <div className="text-center mb-4 sm:mb-6">
-                          {villainBattleCreature ? (
-                            <>
-                              <h2 className="text-2xl sm:text-3xl font-bold text-red-800 mb-2">
-                                🧛‍♀️ {villainBattleCreature.isSidekick ? 'Derpy' : villainBattleCreature.name} vs Vampire Lana!
-                              </h2>
-                              {!battleOptionsReady ? (
-                                <p className="text-red-700 text-base sm:text-lg">Prepare for the final battle...</p>
-                              ) : (
-                                <p className="text-red-700 text-base sm:text-lg">Choose your attack:</p>
-                              )}
-                            </>
-                          ) : (
-                            <>
-                              <h2 className="text-2xl sm:text-3xl font-bold text-green-800 mb-2">
-                                Challenge {selectedCreature?.name}!
-                              </h2>
-                              {!battleOptionsReady ? (
-                                <p className="text-green-700 text-base sm:text-lg">Get ready...</p>
-                              ) : (
-                                <p className="text-green-700 text-base sm:text-lg">Choose your move:</p>
-                              )}
-                            </>
-                          )}
-                        </div>
-                        {battleOptionsReady && (
+                        {isRpgBattle ? (
+                          // RPG Battle UI
+                          <div className="text-center">
+                            <h2 className="text-2xl sm:text-3xl font-bold text-red-800 mb-4">
+                              🧛‍♀️ RPG Battle: {villainBattleCreature?.isSidekick ? 'Derpy' : villainBattleCreature?.name} vs Vampire Lana
+                            </h2>
+
+                            {/* HP Bars */}
+                            <div className="mb-6 space-y-3">
+                              {/* Player Creature HP */}
+                              <div className="bg-blue-100 p-3 rounded-lg">
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="font-bold text-blue-800">
+                                    {villainBattleCreature?.isSidekick ? 'Derpy' : villainBattleCreature?.name} (Lv.{villainBattleCreature?.level})
+                                  </span>
+                                  <span className="text-sm text-blue-600">
+                                    {Math.max(0, villainBattleCreature?.currentHp || 0)}/{villainBattleCreature?.maxHp} HP
+                                  </span>
+                                </div>
+                                <div className="w-full bg-blue-200 rounded-full h-3">
+                                  <div
+                                    className="bg-blue-600 h-3 rounded-full transition-all duration-500"
+                                    style={{
+                                      width: `${Math.max(0, (villainBattleCreature?.currentHp || 0) / (villainBattleCreature?.maxHp || 1)) * 100}%`
+                                    }}
+                                  ></div>
+                                </div>
+                              </div>
+
+                              {/* Villain HP */}
+                              <div className="bg-red-100 p-3 rounded-lg">
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="font-bold text-red-800">Vampire Lana</span>
+                                  <span className="text-sm text-red-600">{villainHp}/{maxVillainHp} HP</span>
+                                </div>
+                                <div className="w-full bg-red-200 rounded-full h-3">
+                                  <div
+                                    className="bg-red-600 h-3 rounded-full transition-all duration-500"
+                                    style={{ width: `${(villainHp / maxVillainHp) * 100}%` }}
+                                  ></div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Battle Log */}
+                            {battleLog.length > 0 && (
+                              <div className="mb-4 p-3 bg-gray-100 rounded-lg max-h-32 overflow-y-auto">
+                                {battleLog.slice(-3).map((log, index) => (
+                                  <p key={index} className="text-sm text-gray-700 mb-1">{log}</p>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Move Selection */}
+                            {currentTurn === 'player' && rpgBattleState === 'select' && (
+                              <div>
+                                <p className="text-red-700 mb-4">Choose {villainBattleCreature?.isSidekick ? 'Derpy' : villainBattleCreature?.name}'s move:</p>
+                                <div className="grid grid-cols-2 gap-3">
+                                  {(villainBattleCreature?.moves && villainBattleCreature.moves.length > 0
+                                    ? villainBattleCreature.moves
+                                    : ['tackle', 'scratch'] // Default moves if none exist
+                                  ).map(moveId => {
+                                    const move = MOVES_LIST[moveId];
+                                    if (!move) return null; // Skip if move doesn't exist
+                                    return (
+                                      <button
+                                        key={moveId}
+                                        onClick={() => handleRpgMove(moveId)}
+                                        className={`p-3 rounded-lg border-2 transition-all touch-manipulation ${
+                                          move.type === 'healing'
+                                            ? 'bg-green-50 border-green-300 hover:bg-green-100'
+                                            : 'bg-red-50 border-red-300 hover:bg-red-100'
+                                        }`}
+                                      >
+                                        <div className="font-bold text-sm">{move.name}</div>
+                                        <div className="text-xs text-gray-600">{move.description}</div>
+                                        <div className="text-xs font-medium">
+                                          {move.type === 'healing' ? `Heal ${Math.abs(move.damage)}` : `${move.damage} DMG`}
+                                        </div>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+
+                                {/* Debug info */}
+                                <div className="mt-2 text-xs text-gray-500">
+                                  Debug: Moves = {JSON.stringify(villainBattleCreature?.moves)} | Turn = {currentTurn} | State = {rpgBattleState}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Waiting for turn */}
+                            {(currentTurn === 'villain' || rpgBattleState === 'animation') && (
+                              <div>
+                                <p className="text-red-700 mb-4">
+                                  {currentTurn === 'villain' ? "Vampire Lana's turn..." : "Processing move..."}
+                                </p>
+                                <div className="animate-spin w-8 h-8 border-4 border-red-300 border-t-red-600 rounded-full mx-auto"></div>
+                              </div>
+                            )}
+
+                            {/* Cancel Battle Button */}
+                            <div className="mt-4">
+                              <button
+                                onClick={() => {
+                                  setIsRpgBattle(false);
+                                  setVillainBattleCreature(null);
+                                  setGameState('exploring');
+                                  setRpgBattleState('select');
+                                  setCurrentTurn('player');
+                                  setVillainHp(100);
+                                  setBattleLog([]);
+                                }}
+                                className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors text-sm"
+                              >
+                                Flee Battle
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          // Original Battle UI
+                          <div className="text-center mb-4 sm:mb-6">
+                            <h2 className="text-2xl sm:text-3xl font-bold text-green-800 mb-2">
+                              Challenge {selectedCreature?.name}!
+                            </h2>
+                            {!battleOptionsReady ? (
+                              <p className="text-green-700 text-base sm:text-lg">Get ready...</p>
+                            ) : (
+                              <p className="text-green-700 text-base sm:text-lg">Choose your move:</p>
+                            )}
+                          </div>
+                        )}
+                        {battleOptionsReady && !isRpgBattle && (
                           <div className="flex flex-col gap-3">
                             {Object.entries(MOVES).map(([key, emoji]) => (
                               <button
@@ -1837,8 +2177,8 @@
                       </div>
                     )}
 
-                    {/* Battle Result */}
-                    {(gameState === 'revealing' || battleResult) && (
+                    {/* Battle Result - Only for non-RPG battles */}
+                    {(gameState === 'revealing' || battleResult) && !isRpgBattle && (
                       <div className="text-center">
                         <div className="flex justify-center gap-8 mb-6">
                           <div className="text-center">
@@ -1982,11 +2322,28 @@
                           <button
                             key={creature.id}
                             onClick={() => {
-                              setVillainBattleCreature(creature);
+                              // Find the latest version of the creature from party
+                              const latestCreature = party.find(p => p.id === creature.id);
+                              const creatureToUse = latestCreature || creature;
+
+                              // Ensure HP values are properly set
+                              const ensuredCreature = {
+                                ...creatureToUse,
+                                maxHp: creatureToUse.maxHp || (20 + ((creatureToUse.level || 1) - 1) * 10),
+                                currentHp: creatureToUse.currentHp !== undefined ? creatureToUse.currentHp : (creatureToUse.maxHp || (20 + ((creatureToUse.level || 1) - 1) * 10))
+                              };
+
+                              setVillainBattleCreature(ensuredCreature);
                               setShowVillainBattleSelect(false);
-                              // Start villain battle logic here
-                              setSelectedCreature(creature);
+                              // Start RPG battle
+                              setIsRpgBattle(true);
+                              setSelectedCreature(null); // Don't set this for RPG battles
+                              setBattleResult(null); // Clear any previous battle results
                               setGameState('battling');
+                              setRpgBattleState('select');
+                              setCurrentTurn('player');
+                              setVillainHp(100);
+                              setBattleLog([]);
                             }}
                             className="flex items-center gap-3 p-3 rounded-lg border-2 border-gray-300 bg-gray-50 hover:bg-red-50 hover:border-red-300 transition-all touch-manipulation"
                           >
@@ -2000,7 +2357,10 @@
                                 />
                                 <div className="flex flex-col text-left">
                                   <span className="text-sm sm:text-base font-medium text-gray-700">Derpy</span>
-                                  <span className="text-xs text-gray-500">Lv.{creature.level || 1} HP:{creature.currentHp || creature.maxHp || 20}/{creature.maxHp || 20}</span>
+                                  <span className={`text-xs ${creature.isFainted ? 'text-red-500' : 'text-gray-500'}`}>
+                                  Lv.{creature.level || 1} HP:{creature.currentHp || creature.maxHp || 20}/{creature.maxHp || 20}
+                                  {creature.isFainted && ' (FAINTED)'}
+                                </span>
                                 </div>
                               </>
                             ) : (
@@ -2017,7 +2377,10 @@
                                 )}
                                 <div className="flex flex-col text-left">
                                   <span className="text-sm sm:text-base text-gray-700">{creature.name}</span>
-                                  <span className="text-xs text-gray-500">Lv.{creature.level || 1} HP:{creature.currentHp || creature.maxHp || 20}/{creature.maxHp || 20}</span>
+                                  <span className={`text-xs ${creature.isFainted ? 'text-red-500' : 'text-gray-500'}`}>
+                                  Lv.{creature.level || 1} HP:{creature.currentHp || creature.maxHp || 20}/{creature.maxHp || 20}
+                                  {creature.isFainted && ' (FAINTED)'}
+                                </span>
                                 </div>
                               </>
                             )}
