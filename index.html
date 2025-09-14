@@ -63,48 +63,60 @@
         const generateTileMap = () => {
           const baseTileMap = [];
           const overlayTileMap = [];
-          
+
           for (let y = 0; y < WORLD_TILES_Y; y++) {
             const baseRow = [];
             const overlayRow = [];
-            
+
             for (let x = 0; x < WORLD_TILES_X; x++) {
-              let baseTile = TILE_TYPES.GRASS; // Always start with grass
+              let baseTile = TILE_TYPES.GRASS; // Default to grass
               let overlayTile = null; // No overlay by default
-              
-              // Create some variety in the world
-              const worldX = x * TILE_SIZE;
-              const worldY = y * TILE_SIZE;
-              
-              // Add sea around edges (replaces grass entirely)
-              if (x === 0 || y === 0 || x === WORLD_TILES_X - 1 || y === WORLD_TILES_Y - 1) {
-                baseTile = Math.random() < 0.7 ? TILE_TYPES.SEA : TILE_TYPES.PEBBLEBEACH;
+
+              // Left edge (x=0 and x=1) is sea - double width
+              if (x === 0 || x === 1) {
+                baseTile = TILE_TYPES.SEA;
               }
-              // Add some random beaches near water (replaces grass entirely)
-              else if ((x === 1 || y === 1 || x === WORLD_TILES_X - 2 || y === WORLD_TILES_Y - 2) && Math.random() < 0.5) {
+              // Bottom edge (last 2 rows) is sea - double width
+              else if (y === WORLD_TILES_Y - 1 || y === WORLD_TILES_Y - 2) {
+                baseTile = TILE_TYPES.SEA;
+              }
+              // Next to left sea edge (x=2) is pebbles
+              else if (x === 2) {
                 baseTile = TILE_TYPES.PEBBLEBEACH;
               }
-              
-              // Add roads as overlays (grass shows through)
-              if (x === Math.floor(WORLD_TILES_X / 2)) {
-                // Vertical road through middle
+              // Next to bottom sea edge (third to last row) is pebbles
+              else if (y === WORLD_TILES_Y - 3) {
+                baseTile = TILE_TYPES.PEBBLEBEACH;
+              }
+              // Everything else is grass
+              else {
+                baseTile = TILE_TYPES.GRASS;
+              }
+
+              // Add road intersection in the center of the map
+              const centerX = Math.floor(WORLD_TILES_X / 2);
+              const centerY = Math.floor(WORLD_TILES_Y / 2);
+
+              // Vertical road through center
+              if (x === centerX && baseTile === TILE_TYPES.GRASS) {
                 overlayTile = TILE_TYPES.ROAD_VERTICAL;
-                if (y === Math.floor(WORLD_TILES_Y / 2)) {
-                  overlayTile = TILE_TYPES.ROAD_CROSS; // Crossroads
+              }
+              // Horizontal road through center
+              if (y === centerY && baseTile === TILE_TYPES.GRASS) {
+                if (x === centerX) {
+                  overlayTile = TILE_TYPES.ROAD_CROSS; // Intersection
+                } else {
+                  overlayTile = TILE_TYPES.ROAD_HORIZONTAL;
                 }
               }
-              else if (y === Math.floor(WORLD_TILES_Y / 2)) {
-                // Horizontal road through middle
-                overlayTile = TILE_TYPES.ROAD_HORIZONTAL;
-              }
-              
+
               baseRow.push(baseTile);
               overlayRow.push(overlayTile);
             }
             baseTileMap.push(baseRow);
             overlayTileMap.push(overlayRow);
           }
-          
+
           return { baseTileMap, overlayTileMap };
         };
 
@@ -145,7 +157,8 @@
             { name: 'Gumball', src: 'public/art/creature2_Gumball.png' },
             { name: 'MerCat', src: 'public/art/creature3_MerCat.png' },
             { name: 'Babylamb', src: 'public/art/creature4_Babylamb.png' },
-            { name: 'Skullcat', src: 'public/art/creature5_Skullcat.png' }
+            { name: 'Skullcat', src: 'public/art/creature5_Skullcat.png' },
+            { name: 'Tiny Robot', src: 'public/art/creature5_tinyrobot.png' }
           ];
           const isShiny = Math.random() < 0.1; // 10% chance for shiny
           const isRare = Math.random() < 0.05; // 5% chance for rare
@@ -298,34 +311,58 @@
           
           // Place each building with better distribution
           const placedBuildings = [];
-          
+
           buildings.forEach((building, i) => {
-            const minSpacing = 300; // Minimum distance between buildings (increased for larger buildings)
             let x, y;
-            let attempts = 0;
-            let validPosition = false;
-            
-            do {
-              // Create zones to better distribute buildings
-              const zoneWidth = WORLD_WIDTH / 3;
-              const zoneHeight = WORLD_HEIGHT / 2;
-              const zoneX = (i % 3) * zoneWidth;
-              const zoneY = Math.floor(i / 3) * zoneHeight;
-              
-              x = zoneX + Math.random() * (zoneWidth - building.width);
-              y = zoneY + Math.random() * (zoneHeight - building.height);
-              
-              // Check distance from other buildings
-              validPosition = placedBuildings.every(placed => {
-                const dx = x - placed.x;
-                const dy = y - placed.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                return distance >= minSpacing;
-              });
-              
-              attempts++;
-            } while (!validPosition && attempts < 100);
-            
+
+            // Special placement for palace pier - place it on the sea at bottom edge
+            if (building.src.includes('buildingpalacepier.png')) {
+              // Place on sea tiles at bottom edge (second-to-last row)
+              const seaRowY = (WORLD_TILES_Y - 2) * TILE_SIZE; // Second-to-last row of tiles
+              x = WORLD_WIDTH / 2 - building.width / 2; // Center horizontally
+              y = seaRowY - building.height + TILE_SIZE; // Position so it sits on the sea tiles
+            }
+            // Special placement for building5 - place it 4 tiles left of palace pier on pebble
+            else if (building.src.includes('building5.png')) {
+              const pebbleRowY = (WORLD_TILES_Y - 3) * TILE_SIZE; // Third-to-last row (pebble row)
+              const palacePierCenterX = WORLD_WIDTH / 2;
+              x = palacePierCenterX - (4 * TILE_SIZE) - building.width / 2; // 4 tiles left of palace pier center
+              y = pebbleRowY - building.height + TILE_SIZE; // Position so it sits on the pebble tiles
+            }
+            // Special placement for building4 - place it 4 tiles up from palace pier on grass next to road
+            else if (building.src.includes('building4.png')) {
+              const palacePierCenterX = WORLD_WIDTH / 2;
+              const palacePierY = (WORLD_TILES_Y - 2) * TILE_SIZE;
+              x = palacePierCenterX + (2 * TILE_SIZE) - building.width / 2; // 2 tiles right of palace pier center
+              y = palacePierY - (4 * TILE_SIZE) - building.height; // 4 tiles up from palace pier
+            } else {
+              // Regular building placement for other buildings
+              const minSpacing = 300;
+              let attempts = 0;
+              let validPosition = false;
+
+              do {
+                // Create zones to better distribute buildings
+                const zoneWidth = WORLD_WIDTH / 3;
+                const zoneHeight = WORLD_HEIGHT / 2;
+                const zoneX = (i % 3) * zoneWidth;
+                const zoneY = Math.floor(i / 3) * zoneHeight;
+
+                x = zoneX + Math.random() * (zoneWidth - building.width);
+                y = zoneY + Math.random() * (zoneHeight - building.height);
+
+                // Check distance from other buildings
+                validPosition = placedBuildings.every(placed => {
+                  const dx = x - placed.x;
+                  const dy = y - placed.y;
+                  const distance = Math.sqrt(dx * dx + dy * dy);
+                  return distance >= minSpacing;
+                });
+
+                attempts++;
+              } while (!validPosition && attempts < 100);
+            }
+
             const buildingData = {
               id: `building-${i}`,
               src: building.src,
@@ -335,13 +372,13 @@
               height: building.height,
               type: 'building'
             };
-            
+
             elements.push(buildingData);
             placedBuildings.push(buildingData);
           });
           
           
-          // Add NPC
+          // Add NPCs
           elements.push({
             id: 'npc-quest-giver',
             src: 'public/art/NPC_Mira.png',
@@ -352,18 +389,67 @@
             type: 'npc'
           });
 
-          // Trees and decorations (keeping these as emojis)
+          // Add Villain NPC - positioned next to vertical road on far right
+          const centerX = Math.floor(WORLD_TILES_X / 2);
+          const villainX = (centerX + 1) * TILE_SIZE + 20; // Just right of the vertical road
+          const villainY = WORLD_HEIGHT / 2 - 60; // Center vertically
+
+          elements.push({
+            id: 'npc-villain',
+            src: 'public/art/villain1.png',
+            x: villainX,
+            y: villainY,
+            width: 97, // Another 10% smaller (108 * 0.9)
+            height: 97, // Another 10% smaller (108 * 0.9)
+            type: 'npc'
+          });
+
+          // Trees and decorations (keeping these as emojis) - only on grass tiles
           const decorEmojis = ['🌳', '🌲', '🌸', '💐', '⛲', '🪨'];
           for (let i = 0; i < 25; i++) {
-            elements.push({
-              id: `decor-${i}`,
-              emoji: decorEmojis[Math.floor(Math.random() * decorEmojis.length)],
-              x: Math.random() * (WORLD_WIDTH - 40),
-              y: Math.random() * (WORLD_HEIGHT - 40),
-              width: 40,
-              height: 40,
-              type: 'decoration'
-            });
+            const emoji = decorEmojis[Math.floor(Math.random() * decorEmojis.length)];
+            // Double size for trees and fountain
+            const isLargeDecor = ['🌳', '🌲', '⛲'].includes(emoji);
+            const size = isLargeDecor ? 80 : 40;
+
+            let x, y;
+            let attempts = 0;
+            let validPosition = false;
+
+            do {
+              x = Math.random() * (WORLD_WIDTH - size);
+              y = Math.random() * (WORLD_HEIGHT - size);
+
+              // Check if position is on grass (not sea, pebble, or road)
+              const tileX = Math.floor(x / TILE_SIZE);
+              const tileY = Math.floor(y / TILE_SIZE);
+
+              // Check if it's NOT on sea tiles (left 2 columns, bottom 2 rows)
+              const notOnSea = !(tileX <= 1 || tileY >= WORLD_TILES_Y - 2);
+
+              // Check if it's NOT on pebble tiles (column 2, third-to-last row)
+              const notOnPebble = !(tileX === 2 || tileY === WORLD_TILES_Y - 3);
+
+              // Check if it's NOT on road tiles (center vertical and horizontal)
+              const centerX = Math.floor(WORLD_TILES_X / 2);
+              const centerY = Math.floor(WORLD_TILES_Y / 2);
+              const notOnRoad = !(tileX === centerX || tileY === centerY);
+
+              validPosition = notOnSea && notOnPebble && notOnRoad;
+              attempts++;
+            } while (!validPosition && attempts < 100);
+
+            if (validPosition) {
+              elements.push({
+                id: `decor-${i}`,
+                emoji: emoji,
+                x: x,
+                y: y,
+                width: size,
+                height: size,
+                type: 'decoration'
+              });
+            }
           }
           return elements;
         };
@@ -425,6 +511,9 @@
           const [nearbyNPC, setNearbyNPC] = useState(null);
           const [showNPCDialogue, setShowNPCDialogue] = useState(false);
           const [npcDialogue, setNpcDialogue] = useState('');
+          const [currentNPC, setCurrentNPC] = useState(null);
+          const [activeFollower, setActiveFollower] = useState(null); // Which party member follows the player
+          const [showPartySelectModal, setShowPartySelectModal] = useState(false);
           const [battleOptionsReady, setBattleOptionsReady] = useState(false);
           const [showBuildingModal, setShowBuildingModal] = useState(false);
           const [selectedBuilding, setSelectedBuilding] = useState(null);
@@ -467,6 +556,7 @@
             
             setCreatures([...initialCreatures, sidekick]);
             setParty([sidekick]);
+            setActiveFollower(sidekick); // Derpy is the default follower
             setTownElements(generateTownElements());
             
             const { baseTileMap, overlayTileMap } = generateTileMap();
@@ -490,10 +580,18 @@
                 } else if (nearbyNPC) {
                   // Show NPC dialogue
                   const partySize = party.length - 1; // Subtract 1 for Derpy (sidekick doesn't count as recruited friend)
-                  if (partySize >= 5) {
-                    setNpcDialogue("Perfect! Now that you have 5 friends in your party, we can TAKEDOWN our enemy! The time has come to face our greatest challenge!");
+
+                  setCurrentNPC(nearbyNPC);
+                  if (nearbyNPC.id === 'npc-villain') {
+                    // Villain dialogue
+                    setNpcDialogue("When you have 5 friends in your party you can battle me.");
                   } else {
-                    setNpcDialogue(`Greetings, Zoe! You currently have ${partySize} recruited friends. When you have 5 friends in your party, we can TAKEDOWN our enemy! Keep battling creatures to recruit more allies.`);
+                    // Mira's dialogue
+                    if (partySize >= 5) {
+                      setNpcDialogue("Perfect! Now that you have 5 friends in your party, we can TAKEDOWN our enemy! The time has come to face our greatest challenge!");
+                    } else {
+                      setNpcDialogue(`Greetings, Zoe! You currently have ${partySize} recruited friends. When you have 5 friends in your party, we can TAKEDOWN our enemy! Keep battling creatures to recruit more allies.`);
+                    }
                   }
                   setShowNPCDialogue(true);
                 }
@@ -665,6 +763,43 @@
                   newX = Math.max(0, Math.min(WORLD_WIDTH - PLAYER_SIZE, newX));
                   newY = Math.max(0, Math.min(WORLD_HEIGHT - PLAYER_SIZE, newY));
 
+                  // Check collision with sea tiles
+                  const checkSeaCollision = (x, y) => {
+                    const tileX = Math.floor(x / TILE_SIZE);
+                    const tileY = Math.floor(y / TILE_SIZE);
+                    const playerRight = Math.floor((x + PLAYER_SIZE) / TILE_SIZE);
+                    const playerBottom = Math.floor((y + PLAYER_SIZE) / TILE_SIZE);
+
+                    // Check all tiles the player would occupy
+                    for (let checkY = tileY; checkY <= playerBottom && checkY < WORLD_TILES_Y; checkY++) {
+                      for (let checkX = tileX; checkX <= playerRight && checkX < WORLD_TILES_X; checkX++) {
+                        // Check if this tile is sea
+                        if ((checkX === 0 || checkX === 1) ||
+                            (checkY === WORLD_TILES_Y - 1 || checkY === WORLD_TILES_Y - 2)) {
+                          return true; // Collision with sea
+                        }
+                      }
+                    }
+                    return false; // No collision
+                  };
+
+                  // Prevent movement into sea tiles
+                  if (checkSeaCollision(newX, newY)) {
+                    // Try to move only horizontally if vertical movement hits sea
+                    if (!checkSeaCollision(newX, prev.y)) {
+                      newY = prev.y;
+                    }
+                    // Try to move only vertically if horizontal movement hits sea
+                    else if (!checkSeaCollision(prev.x, newY)) {
+                      newX = prev.x;
+                    }
+                    // If both directions hit sea, don't move at all
+                    else {
+                      newX = prev.x;
+                      newY = prev.y;
+                    }
+                  }
+
                   // Update walking animation (smoother for player)
                   let newWalkCycle = prev.walkCycle;
                   let newBounceOffset = 0;
@@ -715,47 +850,52 @@
                 setCreatures(prev => {
                   const updatedCreatures = prev.map(creature => {
                     if (creature.inParty) {
-                      // Make party creatures follow the player
-                      const offsetX = creature.isSidekick ? -60 : (-80 - ((creature.id % 100) * 30));
-                      const targetX = player.x + offsetX;
-                      const targetY = player.y;
-                      const dx = targetX - creature.x;
-                      const dy = targetY - creature.y;
-                      const distance = Math.sqrt(dx * dx + dy * dy);
-                      
-                      let newDirection = creature.direction;
-                      let newFacingLeft = creature.facingLeft;
-                      
-                      if (distance > 5) {
-                        const moveX = (dx / distance) * PLAYER_SPEED * 0.8;
-                        const moveY = (dy / distance) * PLAYER_SPEED * 0.8;
-                        
-                        // Update direction based on movement
-                        if (Math.abs(moveX) > Math.abs(moveY)) {
-                          if (moveX > 0) {
-                            newDirection = 'right';
-                            newFacingLeft = true;
+                      // Only make the active follower follow the player
+                      if (activeFollower && creature.id === activeFollower.id) {
+                        const offsetX = creature.isSidekick ? -60 : -80;
+                        const targetX = player.x + offsetX;
+                        const targetY = player.y;
+                        const dx = targetX - creature.x;
+                        const dy = targetY - creature.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+
+                        let newDirection = creature.direction;
+                        let newFacingLeft = creature.facingLeft;
+
+                        if (distance > 5) {
+                          const moveX = (dx / distance) * PLAYER_SPEED * 0.8;
+                          const moveY = (dy / distance) * PLAYER_SPEED * 0.8;
+
+                          // Update direction based on movement
+                          if (Math.abs(moveX) > Math.abs(moveY)) {
+                            if (moveX > 0) {
+                              newDirection = 'right';
+                              newFacingLeft = true;
+                            } else {
+                              newDirection = 'left';
+                              newFacingLeft = false;
+                            }
                           } else {
-                            newDirection = 'left';
-                            newFacingLeft = false;
+                            if (moveY > 0) {
+                              newDirection = 'down';
+                            } else {
+                              newDirection = 'up';
+                            }
                           }
-                        } else {
-                          if (moveY > 0) {
-                            newDirection = 'down';
-                          } else {
-                            newDirection = 'up';
-                          }
+
+                          return {
+                            ...creature,
+                            x: creature.x + moveX,
+                            y: creature.y + moveY,
+                            direction: newDirection,
+                            facingLeft: newFacingLeft
+                          };
                         }
-                        
-                        return { 
-                          ...creature, 
-                          x: creature.x + moveX, 
-                          y: creature.y + moveY,
-                          direction: newDirection,
-                          facingLeft: newFacingLeft
-                        };
+                        return creature;
+                      } else {
+                        // Other party members stay in place
+                        return creature;
                       }
-                      return creature;
                     } else {
                       // Normal creature movement with walking animation
                       let newX = creature.x;
@@ -955,6 +1095,7 @@
             
             setCreatures([...initialCreatures, sidekick]);
             setParty([sidekick]);
+            setActiveFollower(sidekick); // Reset Derpy as the default follower
             setCreatureWins({});
             setGameState('exploring');
             setSelectedCreature(null);
@@ -1091,10 +1232,15 @@
                           }}
                           onClick={!isMobile ? () => {
                             const partySize = party.length - 1;
-                            if (partySize >= 5) {
-                              setNpcDialogue("Perfect! Now that you have 5 friends in your party, we can TAKEDOWN our enemy! The time has come to face our greatest challenge!");
+                            setCurrentNPC(element);
+                            if (element.id === 'npc-villain') {
+                              setNpcDialogue("When you have 5 friends in your party you can battle me.");
                             } else {
-                              setNpcDialogue(`Greetings, Zoe! You currently have ${partySize} recruited friends. When you have 5 friends in your party, we can TAKEDOWN our enemy! Keep battling creatures to recruit more allies.`);
+                              if (partySize >= 5) {
+                                setNpcDialogue("Perfect! Now that you have 5 friends in your party, we can TAKEDOWN our enemy! The time has come to face our greatest challenge!");
+                              } else {
+                                setNpcDialogue(`Greetings, Zoe! You currently have ${partySize} recruited friends. When you have 5 friends in your party, we can TAKEDOWN our enemy! Keep battling creatures to recruit more allies.`);
+                              }
                             }
                             setShowNPCDialogue(true);
                           } : undefined}
@@ -1102,10 +1248,15 @@
                             e.preventDefault();
                             e.stopPropagation();
                             const partySize = party.length - 1;
-                            if (partySize >= 5) {
-                              setNpcDialogue("Perfect! Now that you have 5 friends in your party, we can TAKEDOWN our enemy! The time has come to face our greatest challenge!");
+                            setCurrentNPC(element);
+                            if (element.id === 'npc-villain') {
+                              setNpcDialogue("When you have 5 friends in your party you can battle me.");
                             } else {
-                              setNpcDialogue(`Greetings, Zoe! You currently have ${partySize} recruited friends. When you have 5 friends in your party, we can TAKEDOWN our enemy! Keep battling creatures to recruit more allies.`);
+                              if (partySize >= 5) {
+                                setNpcDialogue("Perfect! Now that you have 5 friends in your party, we can TAKEDOWN our enemy! The time has come to face our greatest challenge!");
+                              } else {
+                                setNpcDialogue(`Greetings, Zoe! You currently have ${partySize} recruited friends. When you have 5 friends in your party, we can TAKEDOWN our enemy! Keep battling creatures to recruit more allies.`);
+                              }
                             }
                             setShowNPCDialogue(true);
                           } : undefined}
@@ -1120,7 +1271,11 @@
                           />
                         </div>
                       ) : (
-                        <div className="text-4xl">
+                        <div
+                          className={`${
+                            ['🌳', '🌲', '⛲'].includes(element.emoji) ? 'text-8xl' : 'text-4xl'
+                          }`}
+                        >
                           {element.emoji}
                         </div>
                       )}
@@ -1139,7 +1294,7 @@
                         creature.inParty && !creature.isSidekick ? 'opacity-70' : ''
                       } ${selectedCreature?.id === creature.id ? 'animate-pulse' : ''} ${
                         isNearby ? 'scale-110 animate-pulse' : ''
-                      } ${creature.isPaused ? 'opacity-80' : ''} ${
+                      } ${
                         creature.rarity === 'shiny' ? 'drop-shadow-lg' : ''
                       } ${creature.rarity === 'rare' ? 'drop-shadow-xl' : ''} ${
                         canInteract && isMobile ? 'cursor-pointer' : ''
@@ -1151,8 +1306,7 @@
                         height: (creature.size || CREATURE_SIZE) + (isMobile ? 20 : 0),
                         zIndex: creature.rarity === 'rare' ? 8 : (creature.rarity === 'shiny' ? 7 : (creature.isSidekick ? 6 : 5)),
                         transform: creature.isPaused ? 'none' : `scale(${1 + Math.sin(creature.walkCycle || 0) * 0.03})`,
-                        filter: creature.isPaused ? 'brightness(0.9)' : 
-                               creature.rarity === 'rare' ? 'brightness(1.3) drop-shadow(0 0 8px gold)' :
+                        filter: creature.rarity === 'rare' ? 'brightness(1.3) drop-shadow(0 0 8px gold)' :
                                creature.rarity === 'shiny' ? 'brightness(1.1) drop-shadow(0 0 4px silver)' : 'none',
                         padding: isMobile ? '10px' : '0', // Extra padding for easier tapping
                         margin: isMobile ? '-10px' : '0'
@@ -1229,7 +1383,7 @@
                       )}
                       
                       {/* Rarity indicator */}
-                      {creature.rarity !== 'common' && (
+                      {creature.rarity !== 'common' && creature.rarity !== 'sidekick' && (
                         <div className={`absolute -top-1 -left-1 text-xs ${
                           creature.rarity === 'rare' ? 'text-yellow-400' : 'text-gray-300'
                         }`}>
@@ -1242,7 +1396,7 @@
                           <div className="text-xs opacity-60">💤</div>
                         </div>
                       )}
-                      {creatureWins[creature.id] > 0 && (
+                      {creatureWins[creature.id] > 0 && !creature.inParty && (
                         <div className="absolute -top-2 -right-2 bg-yellow-400 text-xs rounded-full w-5 h-5 flex items-center justify-center">
                           {creatureWins[creature.id]}
                         </div>
@@ -1307,10 +1461,15 @@
                       }}
                       onClick={isMobile ? () => {
                         const partySize = party.length - 1;
-                        if (partySize >= 5) {
-                          setNpcDialogue("Perfect! Now that you have 5 friends in your party, we can TAKEDOWN our enemy! The time has come to face our greatest challenge!");
+                        setCurrentNPC(nearbyNPC);
+                        if (nearbyNPC.id === 'npc-villain') {
+                          setNpcDialogue("When you have 5 friends in your party you can battle me.");
                         } else {
-                          setNpcDialogue(`Greetings, Zoe! You currently have ${partySize} recruited friends. When you have 5 friends in your party, we can TAKEDOWN our enemy! Keep battling creatures to recruit more allies.`);
+                          if (partySize >= 5) {
+                            setNpcDialogue("Perfect! Now that you have 5 friends in your party, we can TAKEDOWN our enemy! The time has come to face our greatest challenge!");
+                          } else {
+                            setNpcDialogue(`Greetings, Zoe! You currently have ${partySize} recruited friends. When you have 5 friends in your party, we can TAKEDOWN our enemy! Keep battling creatures to recruit more allies.`);
+                          }
                         }
                         setShowNPCDialogue(true);
                       } : undefined}
@@ -1343,8 +1502,12 @@
 
                 {/* Party creatures display */}
                 {party.length > 0 && (
-                  <div className="absolute top-2 left-2 bg-white bg-opacity-90 p-2 sm:p-3 rounded-lg text-xs sm:text-sm shadow-lg">
-                    <div className="font-bold text-green-800 mb-2">Zoe's Party:</div>
+                  <div
+                    className="absolute top-2 left-2 bg-white bg-opacity-90 p-2 sm:p-3 rounded-lg text-xs sm:text-sm shadow-lg cursor-pointer hover:bg-opacity-100 transition-all touch-manipulation select-none"
+                    style={{ zIndex: 30 }}
+                    onClick={() => setShowPartySelectModal(true)}
+                  >
+                    <div className="font-bold text-green-800 mb-2">Zoe's Party: (Click to select follower)</div>
                     <div className="flex flex-col gap-2">
                       {party.map(creature => (
                         <div key={creature.id} className="flex items-center gap-2">
@@ -1404,19 +1567,21 @@
               </div>
 
               {/* NPC Dialogue Modal */}
-              {showNPCDialogue && (
+              {showNPCDialogue && currentNPC && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                   <div className="bg-white p-4 sm:p-6 rounded-xl border-4 border-green-600 max-w-sm sm:max-w-md w-full shadow-2xl">
                     <div className="text-center">
                       <div className="mb-4">
-                        <img 
-                          src="public/art/NPC_Mira.png" 
-                          alt="Mira" 
+                        <img
+                          src={currentNPC.src}
+                          alt={currentNPC.id === 'npc-villain' ? 'Vampire Lana' : 'Mira'}
                           className="w-16 h-16 mx-auto object-contain"
                           style={{ imageRendering: 'pixelated' }}
                         />
                       </div>
-                      <h3 className="text-lg sm:text-xl font-bold text-green-800 mb-4">Mira</h3>
+                      <h3 className="text-lg sm:text-xl font-bold text-green-800 mb-4">
+                        {currentNPC.id === 'npc-villain' ? 'Vampire Lana' : 'Mira'}
+                      </h3>
                       <p className="text-sm sm:text-base text-gray-700 mb-6 leading-relaxed">
                         {npcDialogue}
                       </p>
@@ -1608,6 +1773,71 @@
                       </div>
                     )}
 
+                  </div>
+                </div>
+              )}
+
+              {/* Party Selection Modal */}
+              {showPartySelectModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white p-4 sm:p-6 rounded-xl border-4 border-blue-600 max-w-sm sm:max-w-md w-full shadow-2xl">
+                    <div className="text-center">
+                      <h3 className="text-xl sm:text-2xl font-bold text-blue-800 mb-4">Select Follower</h3>
+                      <p className="text-gray-700 mb-6 text-sm sm:text-base">
+                        Choose which party member follows you:
+                      </p>
+                      <div className="flex flex-col gap-3 mb-6">
+                        {party.map(creature => (
+                          <button
+                            key={creature.id}
+                            onClick={() => {
+                              setActiveFollower(creature);
+                              setShowPartySelectModal(false);
+                            }}
+                            className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all touch-manipulation ${
+                              activeFollower?.id === creature.id
+                                ? 'border-blue-500 bg-blue-50'
+                                : 'border-gray-300 bg-gray-50 hover:bg-gray-100'
+                            }`}
+                          >
+                            {creature.isSidekick ? (
+                              <>
+                                <img
+                                  src="public/art/sidekickfront.png"
+                                  alt="Derpy"
+                                  className="w-8 h-8 object-contain"
+                                  style={{ imageRendering: 'pixelated' }}
+                                />
+                                <span className="text-sm sm:text-base font-medium text-gray-700">Derpy</span>
+                              </>
+                            ) : (
+                              <>
+                                {creature.rarity === 'rare' && typeof creature.src === 'string' && creature.src.includes('🦄') ? (
+                                  <span className="text-2xl">{creature.src}</span>
+                                ) : (
+                                  <img
+                                    src={creature.src}
+                                    alt={creature.name}
+                                    className="w-8 h-8 object-contain"
+                                    style={{ imageRendering: 'pixelated' }}
+                                  />
+                                )}
+                                <span className="text-sm sm:text-base text-gray-700">{creature.name}</span>
+                              </>
+                            )}
+                            {activeFollower?.id === creature.id && (
+                              <span className="ml-auto text-blue-500 text-sm">✓ Following</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => setShowPartySelectModal(false)}
+                        className="bg-gray-500 hover:bg-gray-600 active:bg-gray-700 text-white px-6 py-3 rounded-lg transition-colors touch-manipulation text-base min-h-[50px]"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
