@@ -140,6 +140,10 @@
           scratch: { name: 'Scratch', damage: 12, type: 'physical', description: 'Quick claw attack' },
           bite: { name: 'Bite', damage: 18, type: 'physical', description: 'Sharp teeth attack' },
 
+          // Demon moves
+          dark_strike: { name: 'Dark Strike', damage: 12, type: 'dark', description: 'A powerful dark energy attack' },
+          shadow_blast: { name: 'Shadow Blast', damage: 8, type: 'dark', description: 'Blast of shadow energy' },
+
           // Advanced moves (higher levels)
           fireball: { name: 'Fireball', damage: 25, type: 'magical', description: 'Fiery magical attack' },
           heal: { name: 'Heal', damage: -20, type: 'healing', description: 'Restores HP' },
@@ -169,6 +173,25 @@
           return level * 100; // 100, 200, 300, 400, 500 XP per level
         };
 
+        // Calculate XP progress for progress bar
+        const getXpProgress = (creature) => {
+          const currentLevel = creature.level || 1;
+          const currentXp = creature.experience || 0;
+
+          if (currentLevel >= 5) {
+            return { percentage: 100, current: 'MAX', next: 'MAX' }; // Max level
+          }
+
+          const xpForNextLevel = getXpForLevel(currentLevel + 1);
+          const percentage = (currentXp / xpForNextLevel) * 100;
+
+          return {
+            percentage: Math.min(percentage, 100),
+            current: currentXp,
+            next: xpForNextLevel
+          };
+        };
+
         const getWinner = (playerMove, creatureMove) => {
           if (playerMove === creatureMove) return 'tie';
           if (
@@ -185,6 +208,138 @@
           const dx = obj1.x - obj2.x;
           const dy = obj1.y - obj2.y;
           return Math.sqrt(dx * dx + dy * dy);
+        };
+
+        const generateDemon = (id) => {
+          const level = Math.floor(Math.random() * 3) + 1; // Level 1-3
+          let demonData;
+
+          switch (level) {
+            case 1:
+              demonData = {
+                name: 'Lesser Demon',
+                src: 'public/art/demon1.png',
+                moves: ['shadow_blast'], // Weaker move only
+                maxHp: 18 // Lower HP for level 1
+              };
+              break;
+            case 2:
+              demonData = {
+                name: 'Shadow Demon',
+                src: 'public/art/demon2.png',
+                moves: ['shadow_blast', 'dark_strike'], // Both moves
+                maxHp: 26 // Medium HP for level 2
+              };
+              break;
+            case 3:
+              demonData = {
+                name: 'Greater Demon',
+                src: 'public/art/demon3.png',
+                moves: ['dark_strike', 'shadow_blast'], // Prefers stronger move
+                maxHp: 35 // Higher HP for level 3
+              };
+              break;
+          }
+
+          return {
+            id: `demon-${id}`,
+            name: demonData.name,
+            src: demonData.src,
+            x: Math.random() * (WORLD_WIDTH - CREATURE_SIZE * 2) + CREATURE_SIZE,
+            y: Math.random() * (WORLD_HEIGHT - CREATURE_SIZE * 2) + CREATURE_SIZE,
+            dx: (Math.random() - 0.5) * MOVE_SPEED * 0.5, // Slower movement
+            dy: (Math.random() - 0.5) * MOVE_SPEED * 0.5,
+            size: CREATURE_SIZE,
+            walkCycle: Math.random() * Math.PI * 2,
+            type: 'demon',
+            level: level,
+            maxHp: demonData.maxHp,
+            currentHp: demonData.maxHp,
+            moves: demonData.moves,
+            isFainted: false,
+            experience: 0
+          };
+        };
+
+        const generateAllUniqueCreatures = () => {
+          const baseCreatures = [
+            { name: 'The Sleepy Bear', src: 'public/art/creature1_SP_The_Sleepy_Bear.png' },
+            { name: 'Gumball', src: 'public/art/creature2_Gumball.png' },
+            { name: 'MerCat', src: 'public/art/creature3_MerCat.png' },
+            { name: 'Babylamb', src: 'public/art/creature4_Babylamb.png' },
+            { name: 'Skullcat', src: 'public/art/creature5_Skullcat.png' },
+            { name: 'Tiny Robot', src: 'public/art/creature5_tinyrobot.png' }
+          ];
+
+          // Create one of each base creature
+          const uniqueCreatures = baseCreatures.map((creatureTemplate, index) => {
+            const isShiny = Math.random() < 0.15; // Slightly higher chance for each unique creature
+            let rarity = isShiny ? 'shiny' : 'common';
+
+            return {
+              id: `creature-${index}`,
+              name: creatureTemplate.name,
+              src: creatureTemplate.src,
+              rarity,
+              x: Math.random() * (WORLD_WIDTH - CREATURE_SIZE),
+              y: Math.random() * (WORLD_HEIGHT - CREATURE_SIZE),
+              dx: (Math.random() - 0.5) * MOVE_SPEED * 2,
+              dy: (Math.random() - 0.5) * MOVE_SPEED * 2,
+              wins: 0,
+              inParty: false,
+              level: 0, // Level 0 when wild, becomes 1 when recruited
+              experience: 0,
+              maxHp: 0, // Will be set when recruited
+              currentHp: 0,
+              moves: [], // Will be set when recruited
+              isFainted: false,
+              // Animation state
+              bounceOffset: 0,
+              bouncePhase: Math.random() * Math.PI * 2,
+              isPaused: false,
+              pauseTimer: 0,
+              walkCycle: 0,
+              sparklePhase: Math.random() * Math.PI * 2,
+              direction: 'down',
+              facingLeft: false,
+              isSidekick: false
+            };
+          });
+
+          // Add a few rare creatures
+          const rareCreatures = [
+            { name: 'Mystic Unicorn', src: '🦄' },
+            { name: 'Ancient Dragon', src: '🐲' },
+            { name: 'Spirit Butterfly', src: '🦋' }
+          ].map((rareTemplate, index) => ({
+            id: `rare-${index}`,
+            name: rareTemplate.name,
+            src: rareTemplate.src,
+            rarity: 'rare',
+            x: Math.random() * (WORLD_WIDTH - CREATURE_SIZE),
+            y: Math.random() * (WORLD_HEIGHT - CREATURE_SIZE),
+            dx: (Math.random() - 0.5) * MOVE_SPEED * 2,
+            dy: (Math.random() - 0.5) * MOVE_SPEED * 2,
+            wins: 0,
+            inParty: false,
+            level: 0,
+            experience: 0,
+            maxHp: 0,
+            currentHp: 0,
+            moves: [],
+            isFainted: false,
+            bounceOffset: 0,
+            bouncePhase: Math.random() * Math.PI * 2,
+            isPaused: false,
+            pauseTimer: 0,
+            walkCycle: 0,
+            sparklePhase: Math.random() * Math.PI * 2,
+            direction: 'down',
+            facingLeft: false,
+            isSidekick: false
+          }));
+
+          return [...uniqueCreatures, ...rareCreatures];
         };
 
         const generateCreature = (id) => {
@@ -526,6 +681,7 @@
 
         function PineappleKnifeBumGame() {
           const [creatures, setCreatures] = useState([]);
+          const [demons, setDemons] = useState([]);
           const [party, setParty] = useState([]);
           const [selectedCreature, setSelectedCreature] = useState(null);
           const [gameState, setGameState] = useState('exploring');
@@ -557,9 +713,11 @@
           const [currentBattleWins, setCurrentBattleWins] = useState(0);
           const [particles, setParticles] = useState([]);
           const [nearbyNPC, setNearbyNPC] = useState(null);
+          const [nearbyDemon, setNearbyDemon] = useState(null);
           const [showNPCDialogue, setShowNPCDialogue] = useState(false);
           const [npcDialogue, setNpcDialogue] = useState('');
           const [currentNPC, setCurrentNPC] = useState(null);
+          const [currentDemon, setCurrentDemon] = useState(null);
           const [activeFollower, setActiveFollower] = useState(null); // Which party member follows the player
           const [showPartySelectModal, setShowPartySelectModal] = useState(false);
           const [showVillainBattleSelect, setShowVillainBattleSelect] = useState(false);
@@ -644,14 +802,29 @@
           };
 
           const handleVillainTurn = (currentLog) => {
-            const villainMoves = ['dark_blast', 'vampire_bite', 'shadow_strike'];
-            const randomMove = villainMoves[Math.floor(Math.random() * villainMoves.length)];
+            let enemyMoves, enemyName, randomMove, damage, moveName;
 
-            let damage, moveName;
-            switch (randomMove) {
-              case 'dark_blast': damage = 20; moveName = 'Dark Blast'; break;
-              case 'vampire_bite': damage = 25; moveName = 'Vampire Bite'; break;
-              case 'shadow_strike': damage = 30; moveName = 'Shadow Strike'; break;
+            if (currentDemon) {
+              // Fighting a demon - use demon moves and name
+              enemyMoves = currentDemon.moves;
+              enemyName = currentDemon.name;
+              randomMove = enemyMoves[Math.floor(Math.random() * enemyMoves.length)];
+
+              // Get damage from MOVES_LIST
+              const moveData = MOVES_LIST[randomMove];
+              damage = moveData.damage;
+              moveName = moveData.name;
+            } else {
+              // Fighting the villain - use villain moves
+              const villainMoves = ['dark_blast', 'vampire_bite', 'shadow_strike'];
+              randomMove = villainMoves[Math.floor(Math.random() * villainMoves.length)];
+              enemyName = 'Vampire Lana';
+
+              switch (randomMove) {
+                case 'dark_blast': damage = 15; moveName = 'Dark Blast'; break; // Reduced from 20
+                case 'vampire_bite': damage = 18; moveName = 'Vampire Bite'; break; // Reduced from 25
+                case 'shadow_strike': damage = 22; moveName = 'Shadow Strike'; break; // Reduced from 30
+              }
             }
 
             const actualDamage = Math.floor(damage * (0.8 + Math.random() * 0.4));
@@ -669,7 +842,7 @@
             ));
             setVillainBattleCreature(updatedCreature);
 
-            const newLog = [...currentLog, `Vampire Lana used ${moveName}! Dealt ${actualDamage} damage!`];
+            const newLog = [...currentLog, `${enemyName} used ${moveName}! Dealt ${actualDamage} damage!`];
 
             if (newHp <= 0) {
               newLog.push(`${creature.isSidekick ? 'Derpy' : creature.name} has fainted!`);
@@ -686,7 +859,20 @@
           const handleRpgBattleWin = () => {
             // Give XP and potentially level up
             const creature = villainBattleCreature;
-            const xpGained = 150; // Big XP reward for beating villain
+            let xpGained;
+
+            if (currentDemon) {
+              // XP based on demon level
+              xpGained = 30 + (currentDemon.level * 20); // 50, 70, 90 XP for levels 1, 2, 3
+
+              // Mark demon as fainted
+              setDemons(prev => prev.map(d =>
+                d.id === currentDemon.id ? { ...d, isFainted: true, currentHp: 0, faintedAt: Date.now() } : d
+              ));
+            } else {
+              xpGained = 150; // Big XP reward for beating villain
+            }
+
             const newXp = creature.experience + xpGained;
             const currentLevel = creature.level;
             let newLevel = currentLevel;
@@ -727,6 +913,7 @@
             // Don't set battleResult or gameState for RPG battles - they have their own result handling
             setIsRpgBattle(false);
             setVillainBattleCreature(null);
+            setCurrentDemon(null); // Clear demon battle state
             setGameState('exploring'); // Return to exploring state
 
             if (leveledUp) {
@@ -748,6 +935,7 @@
             // Don't set battleResult or gameState for RPG battles - they have their own result handling
             setIsRpgBattle(false);
             setVillainBattleCreature(null);
+            setCurrentDemon(null); // Clear demon battle state
             setGameState('exploring'); // Return to exploring state
           };
 
@@ -834,12 +1022,14 @@
             setParticles(prev => [...prev, ...newParticles]);
           };
 
-          // Initialize creatures, town, and tile map
+          // Initialize creatures, demons, town, and tile map
           useEffect(() => {
-            const initialCreatures = Array.from({ length: 15 }, (_, i) => generateCreature(i));
+            const initialCreatures = generateAllUniqueCreatures(); // Generate one of each creature type
+            const initialDemons = Array.from({ length: 15 }, (_, i) => generateDemon(i)); // Add 15 demons
             const sidekick = generateSidekick();
-            
+
             setCreatures([...initialCreatures, sidekick]);
+            setDemons(initialDemons);
             setParty([sidekick]);
             setActiveFollower(sidekick); // Derpy is the default follower
             setTownElements(generateTownElements());
@@ -862,6 +1052,8 @@
                 e.preventDefault();
                 if (nearbyCreature) {
                   initiateBattle(nearbyCreature);
+                } else if (nearbyDemon) {
+                  initiateDemonBattle(nearbyDemon);
                 } else if (nearbyNPC) {
                   // Show NPC dialogue
                   const partySize = party.length - 1; // Subtract 1 for Derpy (sidekick doesn't count as recruited friend)
@@ -968,6 +1160,16 @@
             setTimeout(() => {
               setBattleOptionsReady(true);
             }, 800); // 800ms delay
+          };
+
+          // Demon battle initiation function - uses RPG mechanics
+          const initiateDemonBattle = (demon) => {
+            if (demon.isFainted || gameState !== 'exploring') return;
+
+            console.log('Initiating RPG battle with demon:', demon.name, demon.id);
+            playSound('battle');
+            setCurrentDemon(demon); // Store the demon being battled
+            setShowVillainBattleSelect(true); // Reuse the creature selection modal
           };
 
           const handleBuildingClick = (building) => {
@@ -1284,6 +1486,75 @@
                   return updatedCreatures;
                 });
 
+                // Update demons
+                setDemons(prev => {
+                  const updatedDemons = prev.map(demon => {
+                    if (demon.isFainted) return demon; // Don't move fainted demons
+
+                    // Simple wandering AI
+                    let newX = demon.x + demon.dx;
+                    let newY = demon.y + demon.dy;
+
+                    // Bounce off world boundaries
+                    if (newX < CREATURE_SIZE || newX > WORLD_WIDTH - CREATURE_SIZE) {
+                      demon.dx = -demon.dx;
+                      newX = demon.x + demon.dx;
+                    }
+                    if (newY < CREATURE_SIZE || newY > WORLD_HEIGHT - CREATURE_SIZE) {
+                      demon.dy = -demon.dy;
+                      newY = demon.y + demon.dy;
+                    }
+
+                    // Occasionally change direction
+                    let newDx = demon.dx;
+                    let newDy = demon.dy;
+                    if (Math.random() < 0.02) { // 2% chance per frame
+                      newDx = (Math.random() - 0.5) * MOVE_SPEED * 0.5;
+                      newDy = (Math.random() - 0.5) * MOVE_SPEED * 0.5;
+                    }
+
+                    return {
+                      ...demon,
+                      x: newX,
+                      y: newY,
+                      dx: newDx,
+                      dy: newDy,
+                      walkCycle: demon.walkCycle + 0.15
+                    };
+                  });
+
+                  // Check for nearby demons for interaction
+                  const nearbyDemon = updatedDemons.find(demon =>
+                    !demon.isFainted && getDistance(player, demon) < INTERACTION_DISTANCE
+                  );
+                  setNearbyDemon(nearbyDemon || null);
+
+                  // Respawn fainted demons after 30 seconds
+                  const respawnedDemons = updatedDemons.map(demon => {
+                    if (demon.isFainted) {
+                      if (!demon.faintedAt) {
+                        // Mark when demon fainted
+                        return { ...demon, faintedAt: Date.now() };
+                      } else if (Date.now() - demon.faintedAt > 30000) { // 30 seconds
+                        // Respawn demon at new location
+                        return {
+                          ...demon,
+                          isFainted: false,
+                          currentHp: demon.maxHp,
+                          faintedAt: null,
+                          x: Math.random() * (WORLD_WIDTH - CREATURE_SIZE * 2) + CREATURE_SIZE,
+                          y: Math.random() * (WORLD_HEIGHT - CREATURE_SIZE * 2) + CREATURE_SIZE,
+                          dx: (Math.random() - 0.5) * MOVE_SPEED * 0.5,
+                          dy: (Math.random() - 0.5) * MOVE_SPEED * 0.5
+                        };
+                      }
+                    }
+                    return demon;
+                  });
+
+                  return respawnedDemons;
+                });
+
                 // Update particles
                 setParticles(prev => {
                   return prev.map(particle => {
@@ -1391,10 +1662,12 @@
           }, [gameState, countdown, playerMove, creatureMove, selectedCreature, creatureWins]);
 
           const resetGame = () => {
-            const initialCreatures = Array.from({ length: 15 }, (_, i) => generateCreature(i));
+            const initialCreatures = generateAllUniqueCreatures(); // Generate one of each creature type
+            const initialDemons = Array.from({ length: 15 }, (_, i) => generateDemon(i));
             const sidekick = generateSidekick();
-            
+
             setCreatures([...initialCreatures, sidekick]);
+            setDemons(initialDemons);
             setParty([sidekick]);
             setActiveFollower(sidekick); // Reset Derpy as the default follower
             setCreatureWins({});
@@ -1729,6 +2002,58 @@
                     );
                   })}
 
+                  {/* Demons */}
+                  {demons.map(demon => (
+                    <div
+                      key={demon.id}
+                      className={`absolute transition-all duration-100 ease-out ${
+                        demon.isFainted ? 'opacity-50 grayscale' : ''
+                      } ${
+                        nearbyDemon?.id === demon.id ? 'scale-110 animate-pulse' : ''
+                      } ${
+                        !demon.isFainted && gameState === 'exploring' ? 'touch-manipulation select-none' : ''
+                      }`}
+                      style={{
+                        left: demon.x,
+                        top: demon.y,
+                        width: demon.size,
+                        height: demon.size,
+                        zIndex: 15, // Higher than regular creatures
+                        transform: `scale(${1 + Math.sin(demon.walkCycle || 0) * 0.03})`,
+                        filter: demon.isFainted ? 'grayscale(100%)' : 'brightness(0.9) drop-shadow(0 0 8px red)',
+                        padding: isMobile ? '10px' : '0',
+                        margin: isMobile ? '-10px' : '0'
+                      }}
+                      onClick={!demon.isFainted && gameState === 'exploring' && !isMobile ? () => initiateDemonBattle(demon) : undefined}
+                      onPointerDown={!demon.isFainted && isMobile && gameState === 'exploring' ? (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        initiateDemonBattle(demon);
+                      } : undefined}
+                    >
+                      <img
+                        src={demon.src}
+                        alt={demon.name}
+                        className="w-full h-full object-contain"
+                        style={{ imageRendering: 'pixelated' }}
+                      />
+
+                      {/* Demon level indicator */}
+                      {!demon.isFainted && (
+                        <div className="absolute -top-2 -right-2 bg-red-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
+                          {demon.level}
+                        </div>
+                      )}
+
+                      {/* Fainted indicator */}
+                      {demon.isFainted && (
+                        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+                          <div className="text-lg">💀</div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
                   {/* Player Character */}
                   <div
                     className="absolute z-10 transition-all duration-100 ease-out"
@@ -1768,6 +2093,27 @@
                         isMobile ? 'min-h-[30px] min-w-[50px] flex items-center justify-center touch-manipulation' : ''
                       }`}>
                         {isMobile ? 'TAP' : 'SPACE'}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Demon Interaction Indicator */}
+                  {nearbyDemon && !nearbyDemon.isFainted && (
+                    <div
+                      className={`absolute z-20 ${isMobile ? 'cursor-pointer' : 'pointer-events-none'}`}
+                      style={{
+                        left: (nearbyDemon.x - camera.x) + CREATURE_SIZE / 2 - 30,
+                        top: (nearbyDemon.y - camera.y) - 45,
+                        width: 60,
+                        height: 40,
+                        zIndex: 20
+                      }}
+                      onClick={isMobile ? () => initiateDemonBattle(nearbyDemon) : undefined}
+                    >
+                      <div className={`bg-red-600 text-white border-2 border-red-700 rounded px-2 py-1 text-sm font-bold text-center animate-bounce shadow-lg ${
+                        isMobile ? 'min-h-[30px] min-w-[50px] flex items-center justify-center touch-manipulation' : ''
+                      }`}>
+                        {isMobile ? 'FIGHT' : 'BATTLE'}
                       </div>
                     </div>
                   )}
@@ -1851,12 +2197,29 @@
                                 className="w-6 h-6 sm:w-8 sm:h-8 object-contain"
                                 style={{ imageRendering: 'pixelated' }}
                               />
-                              <div className="flex flex-col">
+                              <div className="flex flex-col flex-1">
                                 <span className="text-xs sm:text-sm font-medium text-green-700">Derpy</span>
                                 <span className={`text-xs ${creature.isFainted ? 'text-red-500' : 'text-gray-500'}`}>
                                   Lv.{creature.level || 1} HP:{creature.currentHp || creature.maxHp || 20}/{creature.maxHp || 20}
                                   {creature.isFainted && ' (FAINTED)'}
                                 </span>
+                                {(() => {
+                                  const xpProgress = getXpProgress(creature);
+                                  return (
+                                    <div className="mt-1">
+                                      <div className="flex justify-between text-xs text-blue-600 mb-0.5">
+                                        <span>XP</span>
+                                        <span>{xpProgress.current}/{xpProgress.next}</span>
+                                      </div>
+                                      <div className="w-full bg-blue-200 rounded-full h-1.5">
+                                        <div
+                                          className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
+                                          style={{ width: `${xpProgress.percentage}%` }}
+                                        ></div>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </>
                           ) : (
@@ -1871,12 +2234,29 @@
                                   style={{ imageRendering: 'pixelated' }}
                                 />
                               )}
-                              <div className="flex flex-col">
+                              <div className="flex flex-col flex-1">
                                 <span className="text-xs sm:text-sm text-green-700">{creature.name}</span>
                                 <span className={`text-xs ${creature.isFainted ? 'text-red-500' : 'text-gray-500'}`}>
                                   Lv.{creature.level || 1} HP:{creature.currentHp || creature.maxHp || 20}/{creature.maxHp || 20}
                                   {creature.isFainted && ' (FAINTED)'}
                                 </span>
+                                {(() => {
+                                  const xpProgress = getXpProgress(creature);
+                                  return (
+                                    <div className="mt-1">
+                                      <div className="flex justify-between text-xs text-blue-600 mb-0.5">
+                                        <span>XP</span>
+                                        <span>{xpProgress.current}/{xpProgress.next}</span>
+                                      </div>
+                                      <div className="w-full bg-blue-200 rounded-full h-1.5">
+                                        <div
+                                          className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
+                                          style={{ width: `${xpProgress.percentage}%` }}
+                                        ></div>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </>
                           )}
@@ -2050,13 +2430,13 @@
                               {/* Villain HP */}
                               <div className="bg-red-100 p-3 rounded-lg">
                                 <div className="flex justify-between items-center mb-1">
-                                  <span className="font-bold text-red-800">Vampire Lana</span>
-                                  <span className="text-sm text-red-600">{villainHp}/{maxVillainHp} HP</span>
+                                  <span className="font-bold text-red-800">{currentDemon ? currentDemon.name : 'Vampire Lana'}</span>
+                                  <span className="text-sm text-red-600">{villainHp}/{currentDemon ? currentDemon.maxHp : maxVillainHp} HP</span>
                                 </div>
                                 <div className="w-full bg-red-200 rounded-full h-3">
                                   <div
                                     className="bg-red-600 h-3 rounded-full transition-all duration-500"
-                                    style={{ width: `${(villainHp / maxVillainHp) * 100}%` }}
+                                    style={{ width: `${(villainHp / (currentDemon ? currentDemon.maxHp : maxVillainHp)) * 100}%` }}
                                   ></div>
                                 </div>
                               </div>
@@ -2315,7 +2695,7 @@
                     <div className="text-center">
                       <h3 className="text-xl sm:text-2xl font-bold text-red-800 mb-4">⚔️ Choose Your Champion</h3>
                       <p className="text-gray-700 mb-6 text-sm sm:text-base">
-                        Select which party member will face Vampire Lana in battle:
+                        Select which party member will face {currentDemon ? currentDemon.name : 'Vampire Lana'} in battle:
                       </p>
                       <div className="flex flex-col gap-3 mb-6">
                         {party.map(creature => (
@@ -2342,7 +2722,12 @@
                               setGameState('battling');
                               setRpgBattleState('select');
                               setCurrentTurn('player');
-                              setVillainHp(100);
+                              // Set enemy HP based on whether it's a demon or villain
+                              if (currentDemon) {
+                                setVillainHp(currentDemon.currentHp || currentDemon.maxHp);
+                              } else {
+                                setVillainHp(100); // Villain HP
+                              }
                               setBattleLog([]);
                             }}
                             className="flex items-center gap-3 p-3 rounded-lg border-2 border-gray-300 bg-gray-50 hover:bg-red-50 hover:border-red-300 transition-all touch-manipulation"
@@ -2355,12 +2740,29 @@
                                   className="w-10 h-10 object-contain"
                                   style={{ imageRendering: 'pixelated' }}
                                 />
-                                <div className="flex flex-col text-left">
+                                <div className="flex flex-col text-left flex-1">
                                   <span className="text-sm sm:text-base font-medium text-gray-700">Derpy</span>
                                   <span className={`text-xs ${creature.isFainted ? 'text-red-500' : 'text-gray-500'}`}>
                                   Lv.{creature.level || 1} HP:{creature.currentHp || creature.maxHp || 20}/{creature.maxHp || 20}
                                   {creature.isFainted && ' (FAINTED)'}
                                 </span>
+                                  {(() => {
+                                    const xpProgress = getXpProgress(creature);
+                                    return (
+                                      <div className="mt-1">
+                                        <div className="flex justify-between text-xs text-blue-600 mb-0.5">
+                                          <span>XP</span>
+                                          <span>{xpProgress.current}/{xpProgress.next}</span>
+                                        </div>
+                                        <div className="w-full bg-blue-200 rounded-full h-1">
+                                          <div
+                                            className="bg-blue-500 h-1 rounded-full transition-all duration-300"
+                                            style={{ width: `${xpProgress.percentage}%` }}
+                                          ></div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                               </>
                             ) : (
@@ -2375,12 +2777,29 @@
                                     style={{ imageRendering: 'pixelated' }}
                                   />
                                 )}
-                                <div className="flex flex-col text-left">
+                                <div className="flex flex-col text-left flex-1">
                                   <span className="text-sm sm:text-base text-gray-700">{creature.name}</span>
                                   <span className={`text-xs ${creature.isFainted ? 'text-red-500' : 'text-gray-500'}`}>
                                   Lv.{creature.level || 1} HP:{creature.currentHp || creature.maxHp || 20}/{creature.maxHp || 20}
                                   {creature.isFainted && ' (FAINTED)'}
                                 </span>
+                                  {(() => {
+                                    const xpProgress = getXpProgress(creature);
+                                    return (
+                                      <div className="mt-1">
+                                        <div className="flex justify-between text-xs text-blue-600 mb-0.5">
+                                          <span>XP</span>
+                                          <span>{xpProgress.current}/{xpProgress.next}</span>
+                                        </div>
+                                        <div className="w-full bg-blue-200 rounded-full h-1">
+                                          <div
+                                            className="bg-blue-500 h-1 rounded-full transition-all duration-300"
+                                            style={{ width: `${xpProgress.percentage}%` }}
+                                          ></div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                               </>
                             )}
